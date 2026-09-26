@@ -28,29 +28,15 @@ Paste keys into `.env`. That file stays out of git.
 
 Add `profile.md` and `resume.pdf` at the repo root. Those stay out of git too.
 
-Polling now submits complete Ashby drafts through the workflow, verifies receipt, and records the outcome. Greenhouse/Lever submission is not implemented; those portals remain draft-only.
+Submission functionality has been removed completely. This tool only discovers and screens jobs, prepares answers, and displays local records. No command fills or submits an employer application.
 
-The initial safety limit is one Ashby submission attempt per run. `--submit-limit N` explicitly increases that cap; `--draft-only` disables submission. Saved complete Ashby drafts are processed first, then newly screened and drafted jobs. Unknown or blocked submission outcomes stop the run and appear in Blocked with evidence references. Unprocessed boards stay due after a mid-board stop. A workflow run holding the shared execution lock can submit without acquiring it twice; separate submission commands cannot run alongside it.
+## One-time backlog and scoped discovery
 
-## One-time backlog and single-job submission
-
-`poll --vendor ashby --board COMPANY --job-id UUID --backlog` scopes the actual workflow to one listing without changing screening. Add `--approve-screening` only after explicit human approval of that listing's fit. This overrides the AI fit score for that exact scoped identity, never hard eligibility, unresolved answers, prior submission, or attempt-journal protections. Approval is stored privately; it is used only when the same vendor, board, and job are explicitly scoped. Ashby UUIDs are canonical; legacy URL-based CSV/draft identities normalize on read to retain deduplication.
-
-An explicitly reviewed pre-click blocked attempt may be retried through `review_preclick_attempt`; its prior evidence is retained in the journal. Unknown or clicked attempts cannot be cleared by that function. A real application that remains on its form after clicking without an explicit receipt is **unknown**, not a successful submission, and must be checked with the employer before retrying.
+`poll --vendor ashby --board COMPANY --job-id UUID --backlog` scopes discovery to one listing without bypassing screening. Ashby UUIDs are canonical; legacy URL-based CSV/draft identities normalize on read to retain deduplication.
 
 `python -m applications poll --backlog` scans all boards regardless of schedule and posting age, reopening only age-based rejections. Other rejected, drafted, and submitted jobs remain deduplicated. Normal polls retain the 24-hour freshness cutoff.
 
-After reviewing a complete draft, run:
-
-```bash
-python -m applications submit --portal ashby --job-id JOB_ID
-```
-
-Submission stops while polling is active, for unresolved answers, changed questions, unsupported controls, CAPTCHA, or ambiguous mappings. Older drafts without live-question snapshots must be regenerated. The first adapter supports standard text, resume uploads, native select/radio choices, and semantically verifiable Yes/No buttons; search-backed autocomplete and multiselect require review.
-
-`data/submission-attempts/` stores the exact draft, attempt states, confirmation text, URLs, and screenshots. Only explicit confirmation after the form disappears records `submitted`. A crash or absent confirmation becomes an unknown outcome requiring manual review; no automatic retry is permitted. Even pre-click blocked attempts require explicit review before any journal reset. Do not delete attempt files to retry without checking the employer outcome.
-
-Polling and submission share a process lock. An interrupted attempt may retain `data/submission.lock`; inspect the journal and ensure no submission process is running before removing that file. Evidence contains personal information and remains gitignored.
+Historical application records and `data/submission-attempts/` evidence remain private and untouched. Ambral's earlier attempt remains unknown and needs verification; removal does not turn it into a confirmed application. The old workflow is recoverable from Git commit `2ddeec1`. Concurrent polls are prevented by a local process lock.
 
 ## Run
 
@@ -108,10 +94,10 @@ Applications completed manually outside this tool are not known unless their
 status is recorded in the local log. Deduplication does not match equivalent
 listings across different portals or new IDs for reposted jobs.
 
-Polling can fill and submit supported Ashby forms; use `poll --draft-only` for discovery and drafting without employer submissions. The explicit `submit` command remains available for one saved draft.
+Polling is read-only against employer application forms and never fills or submits them.
 Saved responses live in `data/drafts.json` and are displayed alongside each entry
 in `data/applications.html`, including entries recorded as submitted. They are
-saved drafts. The submission journal stores the draft actually used and receipt evidence; the dashboard links its local path in the status reason. Keep these files private because they can contain personal information.
+saved drafts, not proof of employer receipt. Historical attempt evidence remains available separately. Keep these files private because they can contain personal information.
 
 ## Technical behavior
 

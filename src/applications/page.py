@@ -129,7 +129,7 @@ tr[data-stage="failed"] .status {{ background: #fdebec; color: #a3434d; }}
 <main>
 <p class="eyebrow">Job search workspace</p>
 <h1>Applications</h1>
-<p class="notice">Submitted means the employer confirmed receipt. Drafted means prepared but not sent. Blocked applications need your input; an unknown submission outcome must be checked before retrying. Expand Responses to inspect saved answers and evidence references. Keep this file private.</p>
+<p class="notice">Automatic submission has been removed. Drafts are prepared answers for manual applications. Historical unknown outcomes, including Ambral, still need verification. Expand Responses for details. Keep this file private.</p>
 <p class="run-status"><strong>Scan: {run_label}</strong><br>{run_detail}<br>Refresh to load the latest saved progress.</p>
 <div class="stats">{stats}</div>
 <label class="search" for="search">Search company, role, portal, or reason<input id="search" type="search" placeholder="Search this status…" autocomplete="off"></label>
