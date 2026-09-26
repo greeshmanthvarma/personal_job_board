@@ -4,6 +4,8 @@ import html
 from pathlib import Path
 
 from applications.log import latest_by_job, load_drafts, load_records
+from applications.schedule import load_schedule
+from applications.runstate import load_run
 
 _PAGE_STAGES = {"submitted", "drafted", "blocked", "failed", "jev_yes", "jev_no"}
 
@@ -19,10 +21,18 @@ def render_page(csv_path: Path, html_path: Path, drafts_path: Path) -> None:
             continue
         visible.append(row)
     html_path.parent.mkdir(parents=True, exist_ok=True)
-    html_path.write_text(_document(visible, drafts), encoding="utf-8")
+    summary = {'screened': len(rows), 'boards': len(load_schedule(csv_path.parent / 'board-schedule.json')),
+               'rejected': sum(r.stage in {'keyword_reject', 'eligibility_reject'} or (r.stage == 'jev_no' and not r.reason.startswith('uncertain')) for r in rows),
+               'evaluated': sum(bool(r.model) for r in rows)}
+    html_path.write_text(_document(visible, drafts, summary=summary, run=load_run(csv_path.parent / 'scan-state.json')), encoding="utf-8")
 
 
-def _document(rows: list, drafts: dict) -> str:
+def _document(rows: list, drafts: dict, *, summary: dict | None = None, run: dict | None = None) -> str:
+    summary, run = summary or {}, run or {}
+    stats = ''.join(f'<div class="stat"><span>{label}</span><strong>{int(summary.get(key, 0)):,}</strong></div>' for key, label in [('screened','Jobs screened'),('boards','Boards checked'),('rejected','Rejected'),('evaluated','AI evaluated')])
+    run_label = html.escape(str(run.get('status', 'unknown')).capitalize())
+    progress = f"{int(run.get('processed_boards', 0)):,} / {int(run.get('target_boards', 0)):,} boards this run"
+    run_detail = html.escape(' · '.join(str(v) for v in [progress, run.get('current_board'), run.get('message'), 'Last update: ' + str(run.get('updated_at', 'not recorded'))] if v))
     counts = {"submitted": 0, "drafted": 0, "blocked": 0, "failed": 0, "uncertain": 0}
     body = []
     for row in rows:
@@ -33,12 +43,13 @@ def _document(rows: list, drafts: dict) -> str:
         date = (row.timestamp or "")[:10]
         link = html.escape(row.link, quote=True)
         body.append(
-            "<tr data-stage=\"{stage}\" data-key=\"{key}\">"
+            "<tr data-stage=\"{stage}\" data-key=\"{key}\" data-search=\"{search}\">"
             "<td>{company}</td><td>{role}</td><td>{portal}</td><td>{date}</td>"
             "<td><a href=\"{link}\" target=\"_blank\" rel=\"noopener\">{link_text}</a></td>"
             "<td><span class=\"status\">{status}</span></td><td>{responses}</td></tr>".format(
                 stage=html.escape(stage, quote=True),
                 key=html.escape(key, quote=True),
+                search=html.escape(' '.join([row.company, row.job, row.portal, row.reason]).lower(), quote=True),
                 company=html.escape(row.company),
                 role=html.escape(row.job),
                 portal=html.escape(row.portal),
@@ -73,6 +84,14 @@ main {{ max-width: 1440px; margin: auto; padding: 56px 32px; }}
 h1 {{ font-size: 36px; letter-spacing: -.04em; line-height: 1.2; margin: 0 0 16px; color: #17243b; }}
 .notice {{ max-width: 780px; color: #64748b; margin-bottom: 28px; }}
 .filters {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }}
+.stats {{ display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin: 22px 0; }}
+.stat {{ background: white; border: 1px solid #e1e6ef; border-radius: 12px; padding: 18px; }}
+.stat span {{ display: block; color: #64748b; font-size: 12px; }}
+.stat strong {{ font-size: 28px; letter-spacing: -.03em; }}
+.run-status {{ color: #526078; background: #eaf0ff; padding: 14px 18px; border-radius: 10px; overflow-wrap: anywhere; }}
+.search {{ display: block; margin: 0 0 20px; color: #526078; font-size: 12px; font-weight: 600; }}
+.search input {{ display: block; width: 100%; max-width: 520px; margin-top: 6px; padding: 12px 14px; border: 1px solid #dbe2ed; border-radius: 9px; font: inherit; font-size: 14px; background: white; }}
+.search input:focus-visible {{ outline: 3px solid #818cf8; outline-offset: 2px; }}
 button {{ font: inherit; font-weight: 600; border: 1px solid #dbe2ed; border-radius: 9px; background: white; color: #526078; padding: 10px 16px; cursor: pointer; transition: background .15s, border-color .15s; }}
 button:hover {{ background: #eef2ff; border-color: #a5b4fc; }}
 button.active {{ background: #243c70; border-color: #243c70; color: white; box-shadow: 0 3px 8px #243c701c; }}
@@ -110,7 +129,10 @@ tr[data-stage="failed"] .status {{ background: #fdebec; color: #a3434d; }}
 <main>
 <p class="eyebrow">Job search workspace</p>
 <h1>Applications</h1>
-<p class="notice">This page does not submit applications. Responses are saved drafts, not confirmation of submission. This file may contain personal information; keep it private.</p>
+<p class="notice">Submitted means the employer confirmed receipt. Drafted means prepared but not sent. Blocked applications need your input; an unknown submission outcome must be checked before retrying. Expand Responses to inspect saved answers and evidence references. Keep this file private.</p>
+<p class="run-status"><strong>Scan: {run_label}</strong><br>{run_detail}<br>Refresh to load the latest saved progress.</p>
+<div class="stats">{stats}</div>
+<label class="search" for="search">Search company, role, portal, or reason<input id="search" type="search" placeholder="Search this status…" autocomplete="off"></label>
 <div class="filters">{buttons}</div>
 <p id="empty"></p>
 <div class="table-wrap">
@@ -124,6 +146,8 @@ tr[data-stage="failed"] .status {{ background: #fdebec; color: #a3434d; }}
 </main>
 <script>
 const empty = document.getElementById("empty");
+const search = document.getElementById("search");
+let currentFilter = "submitted";
 const messages = {{
   submitted: "No submitted applications. Drafts are behind the Drafted filter.",
   drafted: "No drafts.",
@@ -132,19 +156,22 @@ const messages = {{
   uncertain: "No uncertain decisions."
 }};
 function apply(filter) {{
+  currentFilter = filter;
+  const query = search.value.trim().toLowerCase();
   let shown = 0;
   document.querySelectorAll("tbody tr").forEach((row) => {{
-    const visible = row.dataset.stage === filter;
+    const visible = row.dataset.stage === filter && (!query || row.dataset.search.includes(query));
     row.hidden = !visible;
     if (visible) shown += 1;
   }});
   empty.hidden = shown !== 0;
-  empty.textContent = messages[filter];
+  empty.textContent = query ? "No matches in this status. Clear the search or choose another status." : messages[filter];
   document.querySelectorAll("button").forEach((button) => {{
     button.classList.toggle("active", button.dataset.filter === filter);
     button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
   }});
 }}
+search.addEventListener("input", () => apply(currentFilter));
 document.querySelectorAll("button").forEach((button) => {{
   button.addEventListener("click", () => apply(button.dataset.filter));
 }});

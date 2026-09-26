@@ -92,7 +92,7 @@ class AnswerTests(unittest.TestCase):
         ]
         draft = draft_answers(questions)
         answers = [field.answer for field in draft.fields]
-        self.assertEqual(answers, [None, "Yes", None, "Yes", "No"])
+        self.assertEqual(answers, ["Yes", "Yes", None, "Yes", "No"])
         self.assertEqual(draft.stage, "blocked")
 
     def test_sponsorship_only_now_and_salary_block(self):
@@ -275,7 +275,7 @@ class PortalTests(unittest.TestCase):
             Board("ashby", "X", "x"),
         )
         self.assertFalse(ashby[0].is_listed)
-        self.assertEqual(ashby[0].external_job_id, "https://jobs.ashbyhq.com/x/1")
+        self.assertEqual(ashby[0].external_job_id, "1")
         lever = parse_lever_jobs([{"id": "abc", "text": "Software Engineer", "hostedUrl": "https://jobs.lever.co/x/abc", "createdAt": 1565990241800}], Board("lever", "X", "x"))
         self.assertEqual(lever[0].external_job_id, "abc")
         self.assertEqual(lever[0].posted_at.year, 2019)

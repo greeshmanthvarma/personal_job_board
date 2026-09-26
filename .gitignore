@@ -11,3 +11,9 @@ profile.md
 resume.pdf
 eligibility-rules.md
 *.egg-info/
+data/scan-state.json
+data/scan-state.tmp
+data/submission-attempts/
+data/submission.lock
+data/execution.lock
+data/screening-approval.json

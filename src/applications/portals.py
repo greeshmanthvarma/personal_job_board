@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from applications.models import Board, JobPosting, Question
 from applications.textutil import strip_html
+from applications.identity import canonical_id
 
 
 class BoardError(Exception):
@@ -113,10 +114,10 @@ def parse_ashby_jobs(payload: dict | list, board: Board) -> list[JobPosting]:
         jobs.append(
             JobPosting(
                 portal="ashby",
-                external_job_id=job_url,
+                external_job_id=canonical_id('ashby', job_url),
                 title=item.get("title") or "",
                 company=board.display_name,
-                location=item.get("location") or "",
+                location=_ashby_location(item),
                 link=job_url or item.get("applyUrl") or "",
                 description_text=description,
                 board_slug=board.slug,
@@ -126,6 +127,24 @@ def parse_ashby_jobs(payload: dict | list, board: Board) -> list[JobPosting]:
             )
         )
     return jobs
+
+
+def _ashby_location(item: dict) -> str:
+    """Prefer a documented US location, including a US secondary location."""
+    locations = [item, *(item.get('secondaryLocations') or [])]
+    known = []
+    for entry in locations:
+        postal = (entry.get('address') or {}).get('postalAddress') or {}
+        country = str(postal.get('addressCountry') or '').strip()
+        if country:
+            label = entry.get('location') or postal.get('addressLocality') or ''
+            known.append((label, country))
+            if country.lower() in {'us', 'usa', 'united states', 'united states of america'}:
+                return f'{label} [country: {country}]'
+    if known:
+        label, country = known[0]
+        return f'{label} [country: {country}]'
+    return item.get('location') or ''
 
 
 def parse_lever_jobs(payload: dict | list, board: Board) -> list[JobPosting]:

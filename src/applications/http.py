@@ -6,6 +6,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+import http.client
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,6 +56,8 @@ def get_bytes(url: str, timeout: float = 30) -> tuple[int, bytes]:
         return err.code, err.read()
     except urllib.error.URLError as err:
         raise NetworkError(str(err.reason)) from err
+    except (TimeoutError, OSError, http.client.HTTPException) as err:
+        raise NetworkError(f'{type(err).__name__}: {err}') from err
 
 
 def post_json(url: str, payload: dict, headers: dict[str, str], timeout: float = 60) -> tuple[int, bytes]:
@@ -72,6 +75,8 @@ def post_json(url: str, payload: dict, headers: dict[str, str], timeout: float =
         return err.code, err.read()
     except urllib.error.URLError as err:
         raise NetworkError(str(err.reason)) from err
+    except (TimeoutError, OSError, http.client.HTTPException) as err:
+        raise NetworkError(f'{type(err).__name__}: {err}') from err
 
 
 def paced_get(get, limiter: Limiter):

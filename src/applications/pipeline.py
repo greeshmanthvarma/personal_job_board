@@ -45,11 +45,11 @@ def keyword_stage(job: JobPosting, now: datetime | None = None, *, retry: bool =
     location = location_decision(job.location)
     if location.action == "reject":
         return "keyword_reject", location.reason
-    if location.action == "uncertain":
-        return "jev_no", f"uncertain: {location.reason}"
     posted = None if retry else posted_within_24_hours(job.posted_at, now or datetime.now(timezone.utc))
     if posted:
         return "keyword_reject", posted
+    if location.action == "uncertain":
+        return "jev_no", f"uncertain: {location.reason}"
     return None
 
 

@@ -107,6 +107,8 @@ _STATE_NAMES = (
 )
 
 _NON_US = (
+    "indonesia", "thailand", "vietnam", "philippines", "hong kong", "austria",
+    "malaysia", "taiwan", "shenzhen", "lausanne", "aus", "new zealand",
     "united kingdom", "great britain", "england", "scotland", "wales", "london",
     "ireland", "dublin", "uk", "europe", "emea", "germany", "berlin", "munich", "france",
     "paris", "netherlands", "amsterdam", "spain", "madrid", "sweden", "stockholm",
@@ -171,6 +173,12 @@ def location_decision(location: str) -> LocationDecision:
         return LocationDecision("pass", "location not stated")
     if _US_EXCLUSION.search(raw):
         return LocationDecision("reject", f"location exclude: United States residents excluded ({raw!r})")
+    country = re.search(r"\[country: ([^\]]+)\]", raw, re.IGNORECASE)
+    if country:
+        code = normalize(country.group(1))
+        if code in {"us", "usa", "u s", "united states", "united states of america"}:
+            return LocationDecision("pass", "location include: structured US address")
+        return LocationDecision("reject", f"location exclude: structured country {country.group(1)!r}")
     if _strong_us(raw):
         return LocationDecision("pass", "location include: United States")
     text = normalize(raw)
@@ -179,15 +187,15 @@ def location_decision(location: str) -> LocationDecision:
             return LocationDecision("reject", f"location exclude: {phrase} ({raw!r})")
     if _state_signal(raw, text):
         return LocationDecision("pass", "location include: United States")
-    if text in {"san francisco", "san francisco bay area", "bay area", "los angeles", "seattle", "boston", "austin", "chicago", "riverside", "new york city", "nyc"}:
+    city = re.sub(r"\b(?:office|headquarters|hq|hybrid|onsite|on site|remote)\b", "", text)
+    city = re.sub(r"\s+", " ", city).strip()
+    if city in {"san francisco", "san francisco bay area", "sf", "sf bay area", "bay area", "sunnyvale", "palo alto", "mountain view", "menlo park", "san jose", "redwood city", "santa clara", "los angeles", "seattle", "boston", "austin", "chicago", "riverside", "new york city", "nyc"}:
         return LocationDecision("pass", "location include: known US city")
     if re.search(r"\b(remote|worldwide|global|anywhere)\b", text) and not re.search(r"\b(hybrid|onsite|on site)\b", text):
         return LocationDecision(
             "uncertain",
             f"remote posting does not state that United States residents can work ({raw!r})",
         )
-    if re.search(r"\b(hybrid|onsite|on site)\b", text):
-        return LocationDecision("pass", "location arrangement accepted")
     return LocationDecision(
         "uncertain",
         f"location does not state United States eligibility ({raw!r})",

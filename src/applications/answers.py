@@ -80,6 +80,8 @@ def plan_answer(question: Question) -> FieldAnswer:
     label = question.label or ""
     text = normalize(label)
     required = question.required
+    if re.search(r"consent.*(?:text message|sms|marketing)|(?:text message|sms).*consent", text):
+        return _block_or_omit(label, required, "communication consent preference is not stated")
     if re.search(r"\b(resume|cv)\b", text):
         return FieldAnswer(label, required, "attach", "resume.pdf", "attach resume.pdf")
     if question.kind == "file":
@@ -131,10 +133,10 @@ def plan_answer(question: Question) -> FieldAnswer:
         return _choice(label, required, "MS Computer Science, expected December 2026", question.options)
     if re.search(r"stem", text) and "opt" in text:
         return _block_or_omit(label, required, "STEM OPT eligibility needs confirmation")
-    if re.search(r"authori[sz]ed to work|legally authori[sz]ed|eligible to work", text):
-        return _block_or_omit(label, required, "current employment authorization needs confirmation")
     if re.search(r"expir|i-140|i140|ead date", text):
         return _block_or_omit(label, required, "visa expiration and EAD dates are unknown")
+    if re.search(r"authori[sz]ed to work|legally authori[sz]ed|eligible to work", text) and not re.search(r'explain|describe|basis|type of|sponsor', text):
+        return _choice(label, required, "Yes", question.options)
     if re.search(r"u\.?s\.? citizen|united states citizen|us citizen", text):
         return _choice(label, required, "No", question.options)
     if re.search(r"permanent resident|green card", text):

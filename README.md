@@ -28,7 +28,29 @@ Paste keys into `.env`. That file stays out of git.
 
 Add `profile.md` and `resume.pdf` at the repo root. Those stay out of git too.
 
-This build stops at drafts and `data/applications.html`. Submission is not implemented, even after draft approval.
+Polling now submits complete Ashby drafts through the workflow, verifies receipt, and records the outcome. Greenhouse/Lever submission is not implemented; those portals remain draft-only.
+
+The initial safety limit is one Ashby submission attempt per run. `--submit-limit N` explicitly increases that cap; `--draft-only` disables submission. Saved complete Ashby drafts are processed first, then newly screened and drafted jobs. Unknown or blocked submission outcomes stop the run and appear in Blocked with evidence references. Unprocessed boards stay due after a mid-board stop. A workflow run holding the shared execution lock can submit without acquiring it twice; separate submission commands cannot run alongside it.
+
+## One-time backlog and single-job submission
+
+`poll --vendor ashby --board COMPANY --job-id UUID --backlog` scopes the actual workflow to one listing without changing screening. Add `--approve-screening` only after explicit human approval of that listing's fit. This overrides the AI fit score for that exact scoped identity, never hard eligibility, unresolved answers, prior submission, or attempt-journal protections. Approval is stored privately; it is used only when the same vendor, board, and job are explicitly scoped. Ashby UUIDs are canonical; legacy URL-based CSV/draft identities normalize on read to retain deduplication.
+
+An explicitly reviewed pre-click blocked attempt may be retried through `review_preclick_attempt`; its prior evidence is retained in the journal. Unknown or clicked attempts cannot be cleared by that function. A real application that remains on its form after clicking without an explicit receipt is **unknown**, not a successful submission, and must be checked with the employer before retrying.
+
+`python -m applications poll --backlog` scans all boards regardless of schedule and posting age, reopening only age-based rejections. Other rejected, drafted, and submitted jobs remain deduplicated. Normal polls retain the 24-hour freshness cutoff.
+
+After reviewing a complete draft, run:
+
+```bash
+python -m applications submit --portal ashby --job-id JOB_ID
+```
+
+Submission stops while polling is active, for unresolved answers, changed questions, unsupported controls, CAPTCHA, or ambiguous mappings. Older drafts without live-question snapshots must be regenerated. The first adapter supports standard text, resume uploads, native select/radio choices, and semantically verifiable Yes/No buttons; search-backed autocomplete and multiselect require review.
+
+`data/submission-attempts/` stores the exact draft, attempt states, confirmation text, URLs, and screenshots. Only explicit confirmation after the form disappears records `submitted`. A crash or absent confirmation becomes an unknown outcome requiring manual review; no automatic retry is permitted. Even pre-click blocked attempts require explicit review before any journal reset. Do not delete attempt files to retry without checking the employer outcome.
+
+Polling and submission share a process lock. An interrupted attempt may retain `data/submission.lock`; inspect the journal and ensure no submission process is running before removing that file. Evidence contains personal information and remains gitignored.
 
 ## Run
 
@@ -36,6 +58,7 @@ This build stops at drafts and `data/applications.html`. Submission is not imple
 python -m applications poll --limit 10
 python -m applications poll
 python -m applications poll --vendor ashby --limit 10
+python -m applications poll --recheck-location
 python -m applications page
 ```
 
@@ -64,6 +87,11 @@ checked during a recent pilot are skipped until their next-check time.
 
 ### Job-level skip rules
 
+`--recheck-location` re-screens previous pre-model location uncertainties and
+includes their Ashby boards even if not yet due. It uses structured primary and
+secondary country addresses and known city aliases. Posting freshness is still
+enforced; this option does not reopen drafts, submissions, or AI fit rejections.
+
 Jobs are identified by portal plus external job ID. The latest stage in
 `data/applications.csv` determines what happens on subsequent board polls:
 
@@ -80,11 +108,10 @@ Applications completed manually outside this tool are not known unless their
 status is recorded in the local log. Deduplication does not match equivalent
 listings across different portals or new IDs for reposted jobs.
 
-This implementation is draft-only: it does not fill or submit employer forms.
+Polling can fill and submit supported Ashby forms; use `poll --draft-only` for discovery and drafting without employer submissions. The explicit `submit` command remains available for one saved draft.
 Saved responses live in `data/drafts.json` and are displayed alongside each entry
 in `data/applications.html`, including entries recorded as submitted. They are
-saved drafts, not proof of the exact answers sent to an employer. Keep these
-files private because they can contain personal information.
+saved drafts. The submission journal stores the draft actually used and receipt evidence; the dashboard links its local path in the status reason. Keep these files private because they can contain personal information.
 
 ## Technical behavior
 
@@ -132,6 +159,13 @@ files private because they can contain personal information.
   labelled native controls and some ARIA controls, preserving required flags,
   options, file fields, and date fields. Unlabelled controls or custom dropdowns
   whose options cannot be enumerated fail discovery rather than guess.
+  Ashby questions are read at the container level, including Yes/No buttons and
+  radio/checkbox groups. The auxiliary resume-autofill uploader is ignored;
+  actual resume uploads are retained. Fixed dropdowns may be opened to read
+  choices without selecting them. Search-backed autocomplete fields are recorded
+  without typing or inventing an option list; their drafted values still need
+  review against the live suggestions. SMS consent is separate from the phone
+  number and remains unanswered until a preference is supplied.
 - No resume file is uploaded to employers. Model calls transmit profile text;
   they do not send the PDF binary. They can incur charges on configured accounts.
 
@@ -158,6 +192,10 @@ files private because they can contain personal information.
 - `data/ats-board-directory.csv`: company board inventory.
 - `data/board-schedule.json`: next-check times, consecutive failures, last status,
   open-job count, and remembered Lever host.
+- `data/scan-state.json`: run status, process ID, timestamps, current board,
+  and completed/target board counts for the current run. Read timeouts are
+  normalized into retryable network errors. Unexpected failures and interrupts
+  save a terminal status and regenerate the dashboard.
 - `data/applications.csv`: append-only stage log. The dashboard shows the latest
   stage for each portal/job ID, not every historical event.
 - `data/drafts.json`: latest saved field responses per job. Retries can replace a
@@ -167,6 +205,13 @@ files private because they can contain personal information.
   to see changes; there is no live push or automatic refresh.
 - The dashboard defaults to Submitted. Other filters show Drafted, Blocked,
   Failed, and Uncertain. Rejected jobs remain in the CSV but are not displayed.
+  Summary cards count all logged jobs, rejected jobs, boards checked, and jobs
+  with AI evaluations. The search box filters the selected status by company,
+  role, portal, or reason, without a server or additional dependency. It does
+  not search rejected jobs, whose detailed records remain in the CSV.
+  Run status is a saved snapshot with a last-update timestamp: reload to see
+  new progress. A force-killed process cannot rewrite its HTML; regenerating
+  the page detects a missing recorded process and labels it interrupted.
 - `--data-dir` changes the directory used for the board inventory and all output
   files. It does not change where the profile, resume, or `.env` are loaded from.
 
