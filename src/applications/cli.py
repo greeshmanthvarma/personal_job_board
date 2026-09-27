@@ -29,33 +29,53 @@ def main(argv: list[str] | None = None) -> int:
     poll.add_argument('--board', help='Restrict the workflow to one company board slug')
     poll.add_argument('--job-id', help='Restrict a scoped board workflow to one job ID; screening still applies')
     poll.add_argument("--data-dir", type=Path)
+    poll.add_argument('--assessment-limit', type=int, default=50, help='Maximum new Jev assessments per scan; discovery continues beyond this budget')
     poll.add_argument("--recheck-location", action="store_true", help="Re-screen pre-model location uncertainties, including recently checked Ashby boards")
     page = sub.add_parser("page", help="Regenerate data/applications.html")
     page.add_argument("--data-dir", type=Path)
+    serve = sub.add_parser('serve', help='Private local job board and application tracker')
+    serve.add_argument('--port', type=int, default=8765)
+    serve.add_argument('--data-dir', type=Path)
+    prepare = sub.add_parser('prepare', help='Prepare answers for one manually selected job; never submit')
+    prepare.add_argument('--portal', required=True, choices=('ashby','greenhouse','lever'))
+    prepare.add_argument('--job-id', required=True)
+    prepare.add_argument('--data-dir', type=Path)
     args = parser.parse_args(argv)
     root = repo_root()
     load_env(root / ".env")
     data = args.data_dir or (root / "data")
+    if args.command == 'serve':
+        from applications.server import serve_board
+        serve_board(data, args.port)
+        return 0
+    if args.command == 'prepare':
+        try:
+            return prepare_selected(root, data, args.portal, args.job_id)
+        except (StopRun, BoardError, NetworkError) as err:
+            print(getattr(err, 'message', str(err)))
+            return 2
     if args.command == "page":
         render_page(data / "applications.csv", data / "applications.html", data / "drafts.json")
         print(data / "applications.html")
         return 0
     if args.job_id and not (args.board and args.vendor):
         parser.error('--job-id requires --board and --vendor')
-    return poll_boards(root, data, limit=args.limit, vendor=args.vendor, recheck_location=args.recheck_location, backlog=args.backlog, board_slug=args.board, job_id=args.job_id)
+    if args.assessment_limit < 0:
+        parser.error('--assessment-limit cannot be negative')
+    return poll_boards(root, data, limit=args.limit, vendor=args.vendor, recheck_location=args.recheck_location, backlog=args.backlog, board_slug=args.board, job_id=args.job_id, assessment_limit=args.assessment_limit)
 
 
-def poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool = False, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None) -> int:
+def poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool = False, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None, assessment_limit: int = 50) -> int:
     from applications.locking import execution_lock
     with execution_lock(data):
-        return _tracked_poll_boards(root, data, limit, vendor, recheck_location, backlog, board_slug, job_id)
+        return _tracked_poll_boards(root, data, limit, vendor, recheck_location, backlog, board_slug, job_id, assessment_limit)
 
 
-def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool = False, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None) -> int:
+def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool = False, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None, assessment_limit: int = 50) -> int:
     run = {'status': 'running', 'pid': os.getpid(), 'started_at': stamp(utc_now()), 'processed_boards': 0, 'target_boards': 0, 'current_board': '', 'message': ''}
     save_run(data / 'scan-state.json', run)
     try:
-        result = _poll_boards(root, data, limit, vendor, recheck_location, run, backlog, board_slug, job_id)
+        result = _poll_boards(root, data, limit, vendor, recheck_location, run, backlog, board_slug, job_id, assessment_limit)
         run['status'] = 'completed' if result == 0 else 'stopped'
         return result
     except KeyboardInterrupt:
@@ -72,7 +92,11 @@ def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str 
         render_page(data / 'applications.csv', data / 'applications.html', data / 'drafts.json')
 
 
-def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool, run: dict, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None) -> int:
+def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool, run: dict, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None, assessment_limit: int = 50) -> int:
+    import hashlib
+    from applications.listings import load_listings, save_listings
+    from applications.keywords import title_decision, location_decision
+    from applications.eligibility import eligibility_reason
     boards = load_boards(data / "ats-board-directory.csv")
     if vendor:
         boards = [board for board in boards if board.vendor == vendor]
@@ -97,6 +121,8 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
     getter = paced_get(get_bytes, production_limiter())
     held = False
     message = ""
+    assessed = 0
+    jev_available = bool(keys.typesafe and profile.strip())
     for board in due:
         if held:
             break
@@ -126,15 +152,19 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
             save_run(data / 'scan-state.json', run)
             render_page(data / 'applications.csv', data / 'applications.html', data / 'drafts.json')
             continue
-        for job in fetched_jobs:
+        collected = []
+        assessments = {}
+        complete = not bool(job_id)
+        previous_listings = load_listings(data)
+        for job in sorted(fetched_jobs, key=lambda j: j.posted_at.timestamp() if j.posted_at else 0, reverse=True):
             if job_id and job.external_job_id != job_id:
                 continue
-            if log.contains(job.portal, job.external_job_id):
+            if not title_decision(job.title).ok or location_decision(job.location).action == 'reject':
                 continue
             try:
                 job = _hydrate(board, job, getter)
-                records_and_draft = _consider_one(job, log, profile, keys, getter, board, backlog=backlog)
-            except BoardError as err:
+            except (BoardError, NetworkError) as err:
+                complete = False
                 log.append(
                     Record(
                         timestamp=stamp(utc_now()),
@@ -144,19 +174,27 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
                         company=job.company,
                         link=job.link,
                         stage="failed",
-                        reason=err.message,
+                        reason=getattr(err, 'message', str(err)),
                     )
                 )
+                collected.append(job)
                 continue
-            except (StopRun, JevError, NetworkError) as err:
-                held = True
-                message = getattr(err, "message", str(err))
-                break
-            records, draft = records_and_draft
-            if draft is not None and records:
-                save_draft(data / "drafts.json", job.identity, draft)
-            for record in records:
-                log.append(record)
+            collected.append(job)
+            if not job.is_listed or eligibility_reason(job.description_text) or not job.description_text.strip():
+                continue
+            fingerprint = hashlib.sha256((job.title+job.location+job.description_text+profile).encode()).hexdigest()
+            if previous_listings.get(job.identity, {}).get('assessment_fingerprint') == fingerprint:
+                continue
+            if jev_available and assessed < assessment_limit:
+                try:
+                    decision = evaluate(post_json, keys.typesafe, profile, job, time.sleep)
+                except (JevError, NetworkError):
+                    jev_available = False
+                    run['message'] = 'Jev unavailable; discovery continues. Unassessed jobs remain visible.'
+                else:
+                    assessments[job.identity] = {'reason': decision.reason, 'fingerprint': fingerprint}
+                    assessed += 1
+        save_listings(data, collected, stamp(utc_now()), board=board, complete=complete, assessments=assessments)
         if held:
             held_state = states.get(board.key) or BoardState()
             held_state.next_check = stamp(utc_now())
@@ -196,10 +234,12 @@ def _hydrate(board, job, getter):
     return job
 
 
-def _consider_one(job, log, profile, keys, getter, board, backlog=False):
+def _consider_one(job, log, profile, keys, getter, board, backlog=False, preparing=False):
     draft_box: dict = {}
 
     def jev(posting):
+        if preparing:
+            return 'jev_yes', 'User-selected answer preparation; not an application', ''
         decision = evaluate(
             lambda url, payload, headers: post_json(url, payload, headers),
             keys.typesafe,
@@ -221,6 +261,8 @@ def _consider_one(job, log, profile, keys, getter, board, backlog=False):
         pending = needs_model(questions)
         supplied = {}
         if pending:
+            if not keys.openai:
+                raise StopRun('OPENAI_API_KEY is needed for personalized narrative answers')
             status, body = post_json(
                 "https://api.openai.com/v1/chat/completions",
                 {
@@ -242,9 +284,9 @@ def _consider_one(job, log, profile, keys, getter, board, backlog=False):
 
     records = consider(
         job,
-        seen=log.contains(job.portal, job.external_job_id),
+        seen=False if preparing else log.contains(job.portal, job.external_job_id),
         profile=profile,
-        keys=keys,
+        keys=Keys(keys.typesafe, keys.openai or 'deterministic-only', keys.answer_model) if preparing else keys,
         timestamp=stamp(utc_now()),
         jev=jev,
         questions_for=questions_for,
@@ -252,6 +294,33 @@ def _consider_one(job, log, profile, keys, getter, board, backlog=False):
         retry=backlog or log.retryable(job.portal, job.external_job_id),
     )
     return records, draft_box.get("draft")
+
+
+def prepare_selected(root, data, portal, job_id):
+    from applications.listings import load_listings
+    from applications.models import JobPosting, Board
+    from applications.eligibility import eligibility_reason
+    from applications.locking import execution_lock
+    with execution_lock(data):
+        item = load_listings(data).get(f'{portal}\t{job_id}')
+        if not item or not item.get('is_listed') or eligibility_reason(item.get('description','')):
+            print('Refresh a currently open eligible listing before preparing answers.')
+            return 2
+        slug = item['board_key'].split(':',1)[1]
+        job = JobPosting(portal,job_id,item['title'],item['company'],item['location'],item['link'],item['description'],board_slug=slug,apply_url=item['link'])
+        profile = (root/'profile.md').read_text() if (root/'profile.md').exists() else ''
+        if not profile.strip():
+            print('profile.md is missing')
+            return 2
+        keys = Keys('explicit-selection',os.environ.get('OPENAI_API_KEY',''),os.environ.get('ANSWER_MODEL','') or 'gpt-6-luna')
+        # Preparation is an explicit user selection, not a fit-gated application.
+        records, draft = _consider_one(job, ApplicationLog(data/'applications.csv'), profile, keys, paced_get(get_bytes,production_limiter()), Board(portal,item['company'],slug), backlog=True, preparing=True)
+        if draft:
+            save_draft(data/'drafts.json',job.identity,draft)
+            print(draft['reason'])
+            return 0 if draft['stage']=='drafted' else 2
+        print(records[-1].reason if records else 'No answers prepared')
+        return 2
 
 
 def repo_root() -> Path:

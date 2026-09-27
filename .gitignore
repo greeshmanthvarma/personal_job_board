@@ -17,3 +17,8 @@ data/submission-attempts/
 data/submission.lock
 data/execution.lock
 data/screening-approval.json
+data/jobs.json
+data/jobs.tmp
+data/tracking.json
+data/tracking.tmp
+data/tracking.lock

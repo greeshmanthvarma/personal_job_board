@@ -57,6 +57,9 @@ def _years(text: str) -> str | None:
     for match in _YEAR.finditer(text):
         years = int(match.group(1))
         prefix = text[max(0, match.start() - 16) : match.start()]
+        range_start = re.search(r'(\d+)\s*[-–—]\s*$', prefix)
+        if range_start:
+            years = int(range_start.group(1))
         if years == 2 and re.search(r"more than|over|greater than", prefix, re.IGNORECASE):
             years = 3
         if years <= 2:
