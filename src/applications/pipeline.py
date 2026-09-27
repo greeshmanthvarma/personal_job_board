@@ -53,6 +53,14 @@ def keyword_stage(job: JobPosting, now: datetime | None = None, *, retry: bool =
     return None
 
 
+def recent_posting(posted_at: datetime | None, now: datetime) -> bool:
+    if posted_at is None:
+        return False
+    moment = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    posted = posted_at if posted_at.tzinfo else posted_at.replace(tzinfo=timezone.utc)
+    return timedelta(0) <= moment-posted <= timedelta(days=7)
+
+
 def posted_within_24_hours(posted_at: datetime | None, now: datetime) -> str | None:
     if posted_at is None:
         return "posted date missing"

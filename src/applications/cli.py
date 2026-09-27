@@ -13,7 +13,7 @@ from applications.jev import JevError, evaluate
 from applications.log import ApplicationLog, save_draft
 from applications.models import Record
 from applications.page import render_page
-from applications.pipeline import Keys, StopRun, consider, draft_payload, keyword_stage
+from applications.pipeline import Keys, StopRun, consider, draft_payload, keyword_stage, recent_posting
 from applications.portals import BoardError, fetch_board, fetch_greenhouse_job, fetch_greenhouse_questions, questions_from_html
 from applications.schedule import BoardState, advance, is_due, load_schedule, save_schedule, stamp, utc_now, select_due
 from applications.runstate import save_run
@@ -210,6 +210,13 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
                 continue
             if not title_decision(job.title).ok or location_decision(job.location).action == 'reject':
                 continue
+            # Keep presence/tracking history, but spend no detail/model budget on known stale jobs.
+            # Greenhouse may expose first_published only in its detail response.
+            if (job.posted_at is not None or job.portal != 'greenhouse') and not recent_posting(job.posted_at,now):
+                if not job.description_text:
+                    job.description_text=previous_listings.get(job.identity,{}).get('description','')
+                collected.append(job)
+                continue
             try:
                 job = _hydrate(board, job, getter)
             except (BoardError, NetworkError) as err:
@@ -229,6 +236,8 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
                 collected.append(job)
                 continue
             collected.append(job)
+            if not recent_posting(job.posted_at,now):
+                continue
             if not job.is_listed or eligibility_reason(job.description_text) or not job.description_text.strip():
                 continue
             fingerprint = hashlib.sha256((job.title+job.location+job.description_text+profile).encode()).hexdigest()
@@ -298,6 +307,8 @@ def _hydrate(board, job, getter):
         return job
     detailed = fetch_greenhouse_job(board, job.external_job_id, getter)
     job.description_text = detailed.description_text
+    if job.posted_at is None:
+        job.posted_at = detailed.posted_at
     if not job.location:
         job.location = detailed.location
     if not job.link:
