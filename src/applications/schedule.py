@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from applications.storage import atomic_json, snapshot_lock
 
 SIX_HOURS = timedelta(hours=6)
 ONE_HOUR = timedelta(hours=1)
@@ -41,7 +42,8 @@ def load_schedule(path: Path) -> dict[str, BoardState]:
 def save_schedule(path: Path, states: dict[str, BoardState]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {key: asdict(state) for key, state in states.items()}
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with snapshot_lock(path.parent):
+        atomic_json(path, payload)
 
 
 def utc_now() -> datetime:
@@ -56,6 +58,21 @@ def is_due(state: BoardState | None, now: datetime) -> bool:
     if state is None or not state.next_check:
         return True
     return state.next_check <= stamp(now)
+
+def select_due(boards, states, now, limit=None, backlog=False):
+    due = [board for board in boards if backlog or is_due(states.get(board.key), now)]
+    due.sort(key=lambda board: states.get(board.key, BoardState()).next_check)
+    if limit is None:
+        return due
+    if limit < 1:
+        return []
+    proven = [b for b in due if states.get(b.key, BoardState()).proven_source]
+    broad = [b for b in due if not states.get(b.key, BoardState()).proven_source]
+    # Reserve half for broader discovery, then borrow unused slots.
+    selected = broad[:(limit+1)//2] + proven[:limit//2]
+    used = {b.key for b in selected}
+    selected += [b for b in due if b.key not in used][:limit-len(selected)]
+    return selected
 
 
 def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime, status: str, strong_match: bool = False) -> BoardState:

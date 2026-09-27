@@ -22,7 +22,7 @@ def static_asset(root: Path, request_path: str):
         return None
     return resolved.read_bytes(), mimetypes.guess_type(str(resolved))[0] or 'application/octet-stream'
 
-def make_server(data: Path, port=8765, frontend_root: Path | None = None):
+def make_server(data: Path, port=8765, frontend_root: Path | None = None, remote_client=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # Never log private notes or request payloads.
@@ -40,6 +40,13 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None):
             self.wfile.write(body)
         def allowed_host(self):
             return self.headers.get('Host')==f'127.0.0.1:{self.server.server_port}'
+        def forward(self, path, payload=None):
+            from applications.proxy import ProxyError
+            try:
+                status, body, content_type = remote_client.request(path, payload)
+                return self.respond(status, body, content_type, 'job-tracking.csv' if path == '/api/export' else None)
+            except ProxyError as err:
+                return self.respond(err.status, {'error': {'code':'remote_unavailable','message':str(err)}})
         def do_GET(self):
             if not self.allowed_host():
                 return self.respond(403,{'error':'Invalid host'})
@@ -49,8 +56,12 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None):
             if self.path=='/':
                 return self.respond(200,BOARD_HTML.encode(),'text/html; charset=utf-8')
             if self.path=='/api/jobs':
+                if remote_client:
+                    return self.forward(self.path)
                 return self.respond(200,{'jobs':list_board_jobs(data),'scan':load_run(data/'scan-state.json')})
             if self.path=='/api/export':
+                if remote_client:
+                    return self.forward(self.path)
                 return self.respond(200,export_tracking(data),'text/csv; charset=utf-8','job-tracking.csv')
             self.respond(404,{'error':'Not found'})
         def do_POST(self):
@@ -68,14 +79,16 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None):
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict) or set(body)!={'identity','status','notes'}:
                     raise ValueError('Invalid tracking fields')
+                if remote_client:
+                    return self.forward(self.path, body)
                 value=update_tracking(data,body['identity'],body['status'],body['notes'])
             except (ValueError,TypeError,KeyError,UnicodeDecodeError) as err:
                 return self.respond(400,{'error':str(err)})
             self.respond(200,value)
     return ThreadingHTTPServer(('127.0.0.1',port),Handler)
 
-def serve_board(data: Path, port=8765):
-    server=make_server(data,port,Path(__file__).resolve().parents[2] / 'frontend' / 'dist')
+def serve_board(data: Path, port=8765, remote_client=None):
+    server=make_server(data,port,Path(__file__).resolve().parents[2] / 'frontend' / 'dist', remote_client)
     print(f'Private job board: http://127.0.0.1:{server.server_port}',flush=True)
     try:
         server.serve_forever()

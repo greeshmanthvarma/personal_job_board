@@ -7,11 +7,13 @@ from pathlib import Path
 from applications.keywords import title_decision, location_decision
 from applications.eligibility import eligibility_reason
 from applications.log import latest_by_job, load_records, load_drafts
+from applications.storage import atomic_json, locked_data
 
 def load_listings(data: Path) -> dict:
     path = data/'jobs.json'
     return json.loads(path.read_text()) if path.exists() else {}
 
+@locked_data
 def save_listings(data: Path, jobs: list, checked_at: str, *, board=None, complete=True, assessments=None):
     values = load_listings(data)
     present = {j.identity for j in jobs}
@@ -37,9 +39,7 @@ def save_listings(data: Path, jobs: list, checked_at: str, *, board=None, comple
             value.update(assessment=assessment['reason'], assessment_fingerprint=assessment['fingerprint'])
         values[job.identity] = value
     data.mkdir(parents=True, exist_ok=True)
-    temporary = data/'jobs.tmp'
-    temporary.write_text(json.dumps(values, ensure_ascii=False), encoding='utf-8')
-    temporary.replace(data/'jobs.json')
+    atomic_json(data/'jobs.json', values)
 
 def fit_score(reason: str):
     matches = re.findall(r'(role_family|level|responsibilities|qualifications)\s+(?:yes|no|uncertain)\s+\((\d+(?:\.\d+)?)\)', reason)

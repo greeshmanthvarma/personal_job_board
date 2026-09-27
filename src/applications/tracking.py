@@ -6,6 +6,7 @@ import fcntl
 from pathlib import Path
 from applications.schedule import stamp, utc_now
 from applications.log import load_records
+from applications.storage import atomic_json, locked_data
 
 STATUSES = ('new','saved','applied','interviewing','offer','rejected','skipped','needs_verification')
 
@@ -13,6 +14,7 @@ def load_tracking(data: Path) -> dict:
     path = data/'tracking.json'
     return json.loads(path.read_text()) if path.exists() else {}
 
+@locked_data
 def update_tracking(data: Path, identity: str, status: str, notes: str) -> dict:
     from applications.listings import load_listings
     if not isinstance(identity,str) or not isinstance(status,str) or not isinstance(notes,str) or status not in STATUSES or len(notes)>10000:
@@ -30,9 +32,7 @@ def update_tracking(data: Path, identity: str, status: str, notes: str) -> dict:
         if status == 'applied' and not entry['applied_at']:
             entry['applied_at'] = now
         values[identity] = entry
-        temporary = data/'tracking.tmp'
-        temporary.write_text(json.dumps(values, ensure_ascii=False), encoding='utf-8')
-        temporary.replace(data/'tracking.json')
+        atomic_json(data/'tracking.json', values)
         return entry
 
 def export_tracking(data: Path) -> bytes:

@@ -2,11 +2,13 @@
 
 import csv
 import json
+import os
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 from applications.models import COLUMNS, Record
 from applications.identity import canonical_id
+from applications.storage import atomic_json, snapshot_lock
 
 
 class ApplicationLog:
@@ -41,12 +43,14 @@ class ApplicationLog:
 
     def append(self, record: Record) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        new_file = not self.path.exists()
-        with self.path.open("a", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            if new_file:
-                writer.writerow(COLUMNS)
-            writer.writerow(record.as_row())
+        with snapshot_lock(self.path.parent):
+            new_file = not self.path.exists()
+            with self.path.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                if new_file:
+                    writer.writerow(COLUMNS)
+                writer.writerow(record.as_row())
+                handle.flush();os.fsync(handle.fileno())
         self.rows.append(record)
         self.latest[f"{record.portal}\t{record.external_job_id}"] = record.stage
         self.location_rechecks.pop(f"{record.portal}\t{record.external_job_id}", None)
@@ -97,7 +101,7 @@ def load_drafts(path: Path) -> dict:
 
 
 def save_draft(path: Path, key: str, draft: dict) -> None:
-    data = load_drafts(path)
-    data[key] = draft
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    with snapshot_lock(path.parent):
+        data = load_drafts(path)
+        data[key] = draft
+        atomic_json(path, data)

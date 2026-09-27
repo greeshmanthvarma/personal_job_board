@@ -15,7 +15,7 @@ from applications.models import Record
 from applications.page import render_page
 from applications.pipeline import Keys, StopRun, consider, draft_payload, keyword_stage
 from applications.portals import BoardError, fetch_board, fetch_greenhouse_job, fetch_greenhouse_questions, questions_from_html
-from applications.schedule import BoardState, advance, is_due, load_schedule, save_schedule, stamp, utc_now
+from applications.schedule import BoardState, advance, is_due, load_schedule, save_schedule, stamp, utc_now, select_due
 from applications.runstate import save_run
 
 
@@ -36,6 +36,14 @@ def main(argv: list[str] | None = None) -> int:
     serve = sub.add_parser('serve', help='Private local job board and application tracker')
     serve.add_argument('--port', type=int, default=8765)
     serve.add_argument('--data-dir', type=Path)
+    serve.add_argument('--remote', action='store_true', help='Use authenticated Railway storage; never fall back to local data')
+    sub.add_parser('host', help='Authenticated Railway backend with supervised scheduled discovery')
+    snapshot = sub.add_parser('snapshot', help='Create a private validated snapshot; never includes secrets/profile')
+    snapshot.add_argument('--data-dir', type=Path)
+    snapshot.add_argument('--output',type=Path,required=True)
+    restore = sub.add_parser('restore', help='Restore a validated snapshot into an empty directory only')
+    restore.add_argument('--source',type=Path,required=True)
+    restore.add_argument('--data-dir',type=Path,required=True)
     prepare = sub.add_parser('prepare', help='Prepare answers for one manually selected job; never submit')
     prepare.add_argument('--portal', required=True, choices=('ashby','greenhouse','lever'))
     prepare.add_argument('--job-id', required=True)
@@ -43,10 +51,30 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = repo_root()
     load_env(root / ".env")
-    data = args.data_dir or (root / "data")
+    data = getattr(args, 'data_dir', None) or (root / "data")
+    if args.command in {'snapshot','restore'}:
+        from applications.snapshots import create_snapshot,restore_snapshot
+        try:
+            if args.command=='snapshot':create_snapshot(data,args.output)
+            else:restore_snapshot(args.source,data)
+        except (ValueError,OSError,KeyError):
+            print('Snapshot operation failed; check validated input and an empty restore destination.')
+            return 2
+        print('Snapshot operation completed; private contents omitted.')
+        return 0
+    if args.command == 'host':
+        from applications.hosting import host_board
+        return host_board(root)
     if args.command == 'serve':
         from applications.server import serve_board
-        serve_board(data, args.port)
+        client = None
+        if args.remote:
+            from applications.proxy import RemoteClient
+            try:
+                client = RemoteClient(os.environ.get('BOARD_REMOTE_URL',''), os.environ.get('BOARD_API_TOKEN',''))
+            except ValueError as err:
+                parser.error(str(err))
+        serve_board(data, args.port, client)
         return 0
     if args.command == 'prepare':
         try:
@@ -105,11 +133,15 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
     states = load_schedule(data / "board-schedule.json")
     now = utc_now()
     log = ApplicationLog(data / "applications.csv", recheck_location=recheck_location, backlog=backlog)
-    due = [board for board in boards if backlog or is_due(states.get(board.key), now) or log.recheck_board(board)]
-    # Prioritize proven sources so bounded scans do not bury them in the directory.
-    due.sort(key=lambda board: not bool(states.get(board.key) and states[board.key].proven_source))
-    if limit is not None:
-        due = due[:limit]
+    due = select_due(boards, states, now, limit, backlog)
+    if recheck_location:
+        due = [board for board in boards if log.recheck_board(board) or board in due]
+        if limit is not None:
+            due = due[:limit]
+    all_due = select_due(boards, states, now)
+    run['due_boards'] = len(all_due)
+    known_due = [states[b.key].next_check for b in all_due if b.key in states and states[b.key].next_check]
+    run['oldest_due_at'] = min(known_due) if known_due else ''
     run['target_boards'] = len(due)
     save_run(data / 'scan-state.json', run)
     render_page(data / 'applications.csv', data / 'applications.html', data / 'drafts.json')
@@ -119,13 +151,25 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
         answer_model=os.environ.get("ANSWER_MODEL", "").strip() or "gpt-6-luna",
     )
     profile_path = root / "profile.md"
-    profile = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
-    getter = paced_get(get_bytes, production_limiter())
+    profile = os.environ.get('PROFILE_TEXT','') or (profile_path.read_text(encoding="utf-8") if profile_path.exists() else "")
+    hosted = os.environ.get('APPLICATIONS_HOSTED') == '1'
+    batch_deadline = time.monotonic() + 1200 if hosted else float('inf')
+    board_deadline = batch_deadline
+    def cloud_get(url):
+        from applications.hosted_http import hosted_get
+        remaining = min(board_deadline,batch_deadline) - time.monotonic()
+        if remaining <= 0:
+            raise NetworkError('Scan deadline reached')
+        return hosted_get(url, timeout=min(30,remaining))
+    getter = paced_get(cloud_get if hosted else get_bytes, production_limiter())
     held = False
     message = ""
     assessed = 0
     jev_available = bool(keys.typesafe and profile.strip())
     for board in due:
+        if time.monotonic() >= batch_deadline:
+            break
+        board_deadline = min(batch_deadline,time.monotonic()+300)
         if held:
             break
         run['current_board'] = board.key
@@ -159,6 +203,9 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
         complete = not bool(job_id)
         previous_listings = load_listings(data)
         for job in sorted(fetched_jobs, key=lambda j: j.posted_at.timestamp() if j.posted_at else 0, reverse=True):
+            if time.monotonic() >= board_deadline:
+                complete = False
+                break
             if job_id and job.external_job_id != job_id:
                 continue
             if not title_decision(job.title).ok or location_decision(job.location).action == 'reject':
@@ -188,8 +235,23 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
             if previous_listings.get(job.identity, {}).get('assessment_fingerprint') == fingerprint:
                 continue
             if jev_available and assessed < assessment_limit:
+                assessment_deadline = min(board_deadline,time.monotonic()+90)
+                def cloud_post(url, payload, headers):
+                    from applications.jev import ENDPOINT
+                    if url != ENDPOINT:
+                        raise NetworkError('Assessment destination rejected')
+                    remaining = assessment_deadline-time.monotonic()
+                    if remaining <= 0:
+                        raise NetworkError('Assessment deadline reached')
+                    from applications.hosted_http import hosted_post
+                    return hosted_post(url,payload,headers,timeout=min(30,remaining))
+                def cloud_sleep(seconds):
+                    remaining=assessment_deadline-time.monotonic()
+                    if remaining<=seconds:
+                        raise NetworkError('Assessment deadline reached')
+                    time.sleep(seconds)
                 try:
-                    decision = evaluate(post_json, keys.typesafe, profile, job, time.sleep)
+                    decision = evaluate(cloud_post if hosted else post_json, keys.typesafe, profile, job, cloud_sleep if hosted else time.sleep)
                 except (JevError, NetworkError):
                     jev_available = False
                     run['message'] = 'Jev unavailable; discovery continues. Unassessed jobs remain visible.'
@@ -211,7 +273,7 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
                 for value in saved.values()
             )
             updated = advance(state, ok=True, job_count=len(fetched_jobs), now=utc_now(), status=fetched_status, strong_match=strong_match)
-            if job_id:
+            if job_id or not complete:
                 updated.next_check = stamp(utc_now())  # Other jobs on this board were not processed.
             updated.lever_host = fetched_host
             states[board.key] = updated

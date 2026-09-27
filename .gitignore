@@ -25,3 +25,8 @@ data/jobs.tmp
 data/tracking.json
 data/tracking.tmp
 data/tracking.lock
+data/snapshot.lock
+data/scheduler-state.json
+data/storage-version.json
+data/backups/
+*.tar.gz

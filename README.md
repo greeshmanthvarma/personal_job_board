@@ -61,7 +61,7 @@ The 12,918-board directory is in `data/ats-board-directory.csv`. `--limit` caps 
 
 ## Jev relevance and ranking
 
-Active boards that have produced an eligible open listing with mean Jev fit of at least 0.75 become proven sources and are scheduled hourly. Empty-board and failure backoff still take precedence. Bounded local scans prioritize proven sources; the fair-share cloud scheduler described in the remote spec is not installed yet. Polling intervals determine when a board becomes due, not a guarantee that every board will be refreshed within that interval.
+Active boards that have produced an eligible open listing with mean Jev fit of at least 0.75 become proven sources and are scheduled hourly. Empty-board and failure backoff still take precedence. Bounded scans reserve capacity for both proven sources and broad discovery, borrowing unused slots. Polling intervals determine when a board becomes due, not a guarantee that every board will be refreshed within that interval.
 
 With `TYPESAFE_API_KEY` in `.env` and `profile.md` present, Jev assesses matching listings. An assessment is cached by job content and profile fingerprint. `--assessment-limit` defaults to 50 new assessments per scan; discovery continues beyond that budget or when Jev is unavailable. A later due scan can assess remaining jobs. OpenAI is not used during discovery.
 
@@ -106,7 +106,7 @@ npm test
 npm run build
 ```
 
-The compiled interface is served by the local Python server. No API keys are used by the frontend. Remote API/proxy, supervised cloud scheduling, backups, and Railway deployment are specified in `docs/remote-job-board-spec.md` but are not implemented yet.
+The compiled interface is served by the local Python server. No API keys are used by the frontend. Railway hosting supports an authenticated API, supervised polling, persistent-volume storage and validated snapshots. The local server's `serve --remote` mode proxies fixed operations without exposing credentials or falling back to local data. See [Hosting](docs/hosting.md) for environment variables, deployment, migration and backup instructions. Deployment and private-data migration remain operator steps; configuring independent volume backups is essential.
 
 ## Hosting and polling availability
 

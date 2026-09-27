@@ -3,14 +3,14 @@ import json
 import os
 from pathlib import Path
 from applications.schedule import stamp, utc_now
+from applications.storage import atomic_json, snapshot_lock
 
 
 def save_run(path: Path, run: dict) -> None:
     run['updated_at'] = stamp(utc_now())
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(run, indent=2), encoding='utf-8')
-    temporary.replace(path)
+    with snapshot_lock(path.parent):
+        atomic_json(path, run)
 
 
 def load_run(path: Path) -> dict:
