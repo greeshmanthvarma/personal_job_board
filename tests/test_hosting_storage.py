@@ -36,7 +36,7 @@ class HostingStorageTests(unittest.TestCase):
     def test_fair_selection_borrows_unused_slots(self):
         now=datetime(2026,9,26,tzinfo=timezone.utc)
         boards=[Board('ashby',str(n),str(n)) for n in range(8)]
-        states={b.key:BoardState(next_check='2026-09-01T00:00:00Z',proven_source=i<4) for i,b in enumerate(boards)}
+        states={b.key:BoardState(next_check='2026-09-01T00:00:00Z',hiring_engineers=i<4) for i,b in enumerate(boards)}
         selected=select_due(boards,states,now,4)
-        self.assertEqual(sum(states[b.key].proven_source for b in selected),2)
+        self.assertEqual(sum(states[b.key].hiring_engineers for b in selected),2)
         self.assertEqual(len(select_due(boards[:3],states,now,4)),3)

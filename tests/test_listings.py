@@ -34,6 +34,28 @@ class ListingTests(unittest.TestCase):
             jev.assert_not_called()
             self.assertEqual(len(list_board_jobs(data)),1)
 
+    def test_open_engineer_titles_poll_hourly_until_they_are_gone(self):
+        from applications.schedule import load_schedule
+        now = datetime(2026, 9, 26, tzinfo=timezone.utc)
+        board = Board('ashby', 'Example', 'example')
+        engineer = JobPosting('ashby', '1', 'Software Engineer', 'Example', 'United States', 'https://jobs.ashbyhq.com/example/1', 'Build software', posted_at=now)
+        sales = JobPosting('ashby', '2', 'Account Executive', 'Example', 'United States', 'https://jobs.ashbyhq.com/example/2', 'Sell software', posted_at=now)
+        abroad = JobPosting('ashby', '3', 'Software Engineer', 'Example', 'London', 'https://jobs.ashbyhq.com/example/3', 'Build software', posted_at=now)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data = root / 'data'
+            with patch('applications.cli.utc_now', return_value=now), patch('applications.cli.load_boards', return_value=[board]), patch('applications.cli.fetch_board', return_value=BoardFetch(True, '200', (engineer, sales), '')), patch.dict('os.environ', {'TYPESAFE_API_KEY': '', 'OPENAI_API_KEY': ''}):
+                self.assertEqual(poll_boards(root, data, None, None), 0)
+            state = load_schedule(data / 'board-schedule.json')[board.key]
+            self.assertTrue(state.hiring_engineers)
+            self.assertEqual(state.next_check, '2026-09-26T01:00:00Z')
+            later = now.replace(hour=1)
+            with patch('applications.cli.utc_now', return_value=later), patch('applications.cli.load_boards', return_value=[board]), patch('applications.cli.fetch_board', return_value=BoardFetch(True, '200', (sales, abroad), '')), patch.dict('os.environ', {'TYPESAFE_API_KEY': '', 'OPENAI_API_KEY': ''}):
+                self.assertEqual(poll_boards(root, data, None, None), 0)
+            state = load_schedule(data / 'board-schedule.json')[board.key]
+            self.assertFalse(state.hiring_engineers)
+            self.assertEqual(state.next_check, '2026-09-26T07:00:00Z')
+
     def test_failed_board_does_not_close_jobs(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)

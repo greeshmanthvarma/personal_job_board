@@ -65,18 +65,18 @@ The hosted worker starts its first scan immediately, then waits **five minutes a
 
 Individual boards are fetched only when due:
 
-- Proven sources with eligible strong-fit matches: every hour.
+- Boards with an open software-engineer title that is not a hard location miss: every hour.
 - Other nonempty boards: every six hours.
 - Empty boards: once per day.
 - Failed boards: retry after six hours for the first two failures, then after one week for three or more consecutive failures.
 
-The default batch limits are **50 boards** and **50 new Jev assessments**. The scanner continues discovering listings after the assessment budget is exhausted. Broad discovery and proven sources share the board budget, borrowing unused slots. A batch has a twenty-minute deadline.
+The default batch limits are **50 boards** and **50 new Jev assessments**. The scanner continues discovering listings after the assessment budget is exhausted. Broad discovery and boards currently hiring engineers share the board budget, borrowing unused slots. A batch has a twenty-minute deadline.
 
 Railway variables control these defaults: `POLL_INTERVAL_SECONDS=300`, `POLL_BOARD_LIMIT=50`, and `POLL_ASSESSMENT_LIMIT=50`. Five minutes is the delay between completed batches, not a promise to check every company every five minutes. Board due times are also not refresh guarantees: limited capacity and the directory backlog can delay a check. Remote polling continues while your laptop sleeps; the local React interface is not required for discovery.
 
 ## Jev relevance and ranking
 
-Active boards that have produced an eligible open listing with mean Jev fit of at least 0.75 become proven sources and are scheduled hourly. Empty-board and failure backoff still take precedence. Bounded scans reserve capacity for both proven sources and broad discovery, borrowing unused slots. Polling intervals determine when a board becomes due, not a guarantee that every board will be refreshed within that interval.
+A board is scheduled hourly while its latest successful scan includes an open title from the software-engineer include list and that posting is not a hard location miss. A later scan with no such title returns it to six hours. Empty-board and failure backoff still take precedence. A failed request keeps the previous hiring flag until a successful scan replaces it. Bounded scans reserve capacity for both engineer-hiring boards and broad discovery, borrowing unused slots. Polling intervals determine when a board becomes due, not a guarantee that every board will be refreshed within that interval.
 
 With `TYPESAFE_API_KEY` in `.env` and `profile.md` present, Jev assesses matching listings with a known posting date within the past seven days. The age check runs before Jev and, when the board exposes a date, before detail requests. Greenhouse listings without a date may need a detail request to obtain it; unknown dates still never use Jev budget. Existing tracking and listing presence are retained. An assessment is cached by job content and profile fingerprint. `--assessment-limit` defaults to 50 new assessments per scan; discovery continues beyond that budget or when Jev is unavailable. A later due scan can assess remaining recent jobs. OpenAI is not used during discovery.
 

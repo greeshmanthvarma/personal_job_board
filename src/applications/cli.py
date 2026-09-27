@@ -122,7 +122,7 @@ def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str 
 
 def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool, run: dict, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None, assessment_limit: int = 50) -> int:
     import hashlib
-    from applications.listings import fit_score, load_listings, save_listings
+    from applications.listings import load_listings, save_listings
     from applications.keywords import title_decision, location_decision
     from applications.eligibility import eligibility_reason
     boards = load_boards(data / "ats-board-directory.csv")
@@ -274,14 +274,7 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
             held_state.lever_host = fetched_host
             states[board.key] = held_state
         else:
-            saved = load_listings(data)
-            strong_match = any(
-                value.get('board_key') == board.key
-                and value.get('is_listed') and not value.get('eligibility_reason')
-                and (fit_score(value.get('assessment', '')) or 0) >= .75
-                for value in saved.values()
-            )
-            updated = advance(state, ok=True, job_count=len(fetched_jobs), now=utc_now(), status=fetched_status, strong_match=strong_match)
+            updated = advance(state, ok=True, job_count=len(fetched_jobs), now=utc_now(), status=fetched_status, hiring_engineers=_hires_engineers(fetched_jobs))
             if job_id or not complete:
                 updated.next_check = stamp(utc_now())  # Other jobs on this board were not processed.
             updated.lever_host = fetched_host
@@ -298,6 +291,14 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
         return 2
     print(f"polled {len(due)} boards")
     return 0
+
+
+def _hires_engineers(jobs) -> bool:
+    from applications.keywords import location_decision, title_decision
+    return any(
+        job.is_listed and title_decision(job.title).ok and location_decision(job.location).action != "reject"
+        for job in jobs
+    )
 
 
 def _hydrate(board, job, getter):

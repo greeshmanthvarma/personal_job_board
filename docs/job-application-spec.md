@@ -34,9 +34,10 @@ Greenhouse and Ashby do not publish a read rate limit. Lever’s robots file ask
 
 Each board has its own next-check time. A new slug starts on the six-hour tier.
 
-- **Live boards.** Poll every six hours. A board stays here when it has open jobs. It also stays here when the latest pass returns the same jobs and nothing new. “No new job” does not slow the board down.
-- **Empty boards.** A successful response with zero open jobs moves the board to once a day. The next pass that finds jobs puts it back on six hours.
-- **Failing boards.** A 404, a timeout, or a hard error increments a consecutive-failure count. After three failures in a row, poll weekly. A later success clears the count and returns the board to six hours or daily, based on whether it has jobs. A board is never deleted because of a 404. A rename, an outage, or a temporary config change would otherwise drop that employer for good.
+- **Engineer-hiring boards.** Poll every hour while the latest successful scan has an open title from the software-engineer include list and that posting is not a hard location miss. The same jobs on the next pass do not slow the board down. A later scan with no such title returns the board to six hours. A past fit score does not change the interval.
+- **Other live boards.** Poll every six hours while they have open jobs and none of those titles match.
+- **Empty boards.** A successful response with zero open jobs moves the board to once a day and clears the engineer-hiring flag. The next pass that finds jobs puts it back on six hours, or one hour if an engineer title is open.
+- **Failing boards.** A 404, a timeout, or a hard error increments a consecutive-failure count. After three failures in a row, poll weekly. The engineer-hiring flag stays until a later success, which clears the count and returns the board to one hour, six hours, or daily from the jobs in that response. A board is never deleted because of a 404. A rename, an outage, or a temporary config change would otherwise drop that employer for good.
 - **Newly discovered boards.** A careers URL seen later, or a slug from a newer public directory, is added and polled on the six-hour tier.
 
 Only new job ids continue past the poll. A job already in the log is not sent through the keyword filter or jev again.

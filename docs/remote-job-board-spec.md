@@ -59,11 +59,11 @@ Version stored schemas and validate before startup or import. Corrupt data must 
 
 ## Polling and ranking
 
-Wake the scheduler every five minutes. It selects due boards, prioritizing proven sources while reserving capacity for broader discovery. One scan at a time; at most 50 boards per batch and 50 new Jev assessments. Limits are configurable without adding browser controls. Complete a batch before starting another; missed ticks coalesce, not accumulate.
+Wake the scheduler every five minutes. It selects due boards, prioritizing boards that currently have open software-engineer titles while reserving capacity for broader discovery. One scan at a time; at most 50 boards per batch and 50 new Jev assessments. Limits are configurable without adding browser controls. Complete a batch before starting another; missed ticks coalesce, not accumulate.
 
-Default intervals: active proven sources hourly, other active boards every six hours, empty boards daily; first two consecutive failures six hours, third and later failures seven days. Define proven as a board that has produced at least one eligible open listing with mean Jev fit >=0.75. This is a heuristic, not interview probability. Preserve proven status across empty responses/failures; permit operational reset. Do not classify unavailable assessments as poor fit.
+Default intervals: boards with an open software-engineer title that is not a hard location miss, hourly; other active boards every six hours; empty boards daily; first two consecutive failures six hours, third and later failures seven days. Recompute that hiring flag from the latest successful job list. A later scan with no matching title returns the board to six hours. A failed request keeps the previous flag until a successful scan replaces it. An empty board clears the flag. A past Jev score does not change the interval. Do not classify unavailable assessments as poor fit.
 
-Avoid starvation: within each batch reserve at least half the slots for due non-proven boards, borrowing unused slots in either direction. Within both groups select oldest due time first; never repeatedly take the first entries in directory order. Unseen boards are due and get a stable FIFO initial order. Report outstanding due count and oldest due age. The directory cannot be promised fully refreshed every six hours: total coverage depends on pacing, board count, and runtime. The interval is eligibility for another scan, not a freshness guarantee.
+Avoid starvation: within each batch reserve at least half the slots for due boards that are not currently hiring engineers, borrowing unused slots in either direction. Within both groups select oldest due time first; never repeatedly take the first entries in directory order. Unseen boards are due and get a stable FIFO initial order. Report outstanding due count and oldest due age. The directory cannot be promised fully refreshed every six hours: total coverage depends on pacing, board count, and runtime. The interval is eligibility for another scan, not a freshness guarantee.
 
 Retain >=1-second GET spacing with jitter, bounded retries/timeouts, provider backoff, title/location screening before description hydration, assessment content/profile fingerprint cache, and continued discovery when Jev is down. A failed, partial, or job-scoped fetch must not close missing jobs. Use UTC for schedules. Shutdown stops starting new work and drains or safely interrupts current work; restart resumes overdue boards and never treats an old running status as a live scan.
 
@@ -114,7 +114,7 @@ Require daily recoverable backups and a manual pre-migration backup; retain seve
 - Apply remote limits of 10 concurrent requests and 120 requests/minute per token; return 429 with Retry-After. Public health checks have separate ingress limits. These are configurable operational limits, not React features.
 
 1. Remote scan progresses with laptop off; scheduler restart resumes due work and excludes overlap.
-2. Both proven and non-proven due boards progress under sustained load; test caps, FIFO fairness, and failure backoff with a fake clock.
+2. Both engineer-hiring and other due boards progress under sustained load; test caps, FIFO fairness, and failure backoff with a fake clock.
 3. Bad tokens, direct cross-origin requests, forged local Host/Origin, oversized bodies, traversal, and arbitrary forwarding fail without data disclosure.
 4. Browser bundles/network responses/logs contain no token, profile, or model key. Untrusted descriptions cannot execute scripts.
 5. Save/export survive HTTP restart, scanner activity, and deployment restart with the mounted volume. Crash-injection tests prove atomic files; corrupted files fail safely.

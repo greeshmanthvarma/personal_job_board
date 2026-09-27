@@ -19,7 +19,7 @@ class BoardState:
     lever_host: str = ""
     last_status: str = ""
     open_jobs: int | None = None
-    proven_source: bool = False
+    hiring_engineers: bool = False
 
 
 def load_schedule(path: Path) -> dict[str, BoardState]:
@@ -33,7 +33,7 @@ def load_schedule(path: Path) -> dict[str, BoardState]:
             lever_host=value.get("lever_host") or "",
             last_status=value.get("last_status") or "",
             open_jobs=value.get("open_jobs"),
-            proven_source=bool(value.get("proven_source", False)),
+            hiring_engineers=bool(value.get("hiring_engineers", False)),
         )
         for key, value in raw.items()
     }
@@ -66,16 +66,16 @@ def select_due(boards, states, now, limit=None, backlog=False):
         return due
     if limit < 1:
         return []
-    proven = [b for b in due if states.get(b.key, BoardState()).proven_source]
-    broad = [b for b in due if not states.get(b.key, BoardState()).proven_source]
+    hiring = [b for b in due if states.get(b.key, BoardState()).hiring_engineers]
+    broad = [b for b in due if not states.get(b.key, BoardState()).hiring_engineers]
     # Reserve half for broader discovery, then borrow unused slots.
-    selected = broad[:(limit+1)//2] + proven[:limit//2]
+    selected = broad[:(limit+1)//2] + hiring[:limit//2]
     used = {b.key for b in selected}
     selected += [b for b in due if b.key not in used][:limit-len(selected)]
     return selected
 
 
-def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime, status: str, strong_match: bool = False) -> BoardState:
+def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime, status: str, hiring_engineers: bool = False) -> BoardState:
     current = state or BoardState()
     if not ok:
         failures = current.consecutive_failures + 1
@@ -86,13 +86,13 @@ def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime
             consecutive_failures=failures,
             last_status=status,
         )
-    proven = current.proven_source or strong_match
-    interval = ONE_DAY if job_count == 0 else ONE_HOUR if proven else SIX_HOURS
+    hiring = bool(hiring_engineers) and job_count > 0
+    interval = ONE_DAY if job_count == 0 else ONE_HOUR if hiring else SIX_HOURS
     return replace(
         current,
         next_check=stamp(now + interval),
         consecutive_failures=0,
         last_status=status,
         open_jobs=job_count,
-        proven_source=proven,
+        hiring_engineers=hiring,
     )
