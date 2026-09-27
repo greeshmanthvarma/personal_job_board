@@ -94,7 +94,7 @@ def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str 
 
 def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, recheck_location: bool, run: dict, backlog: bool = False, board_slug: str | None = None, job_id: str | None = None, assessment_limit: int = 50) -> int:
     import hashlib
-    from applications.listings import load_listings, save_listings
+    from applications.listings import fit_score, load_listings, save_listings
     from applications.keywords import title_decision, location_decision
     from applications.eligibility import eligibility_reason
     boards = load_boards(data / "ats-board-directory.csv")
@@ -106,6 +106,8 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
     now = utc_now()
     log = ApplicationLog(data / "applications.csv", recheck_location=recheck_location, backlog=backlog)
     due = [board for board in boards if backlog or is_due(states.get(board.key), now) or log.recheck_board(board)]
+    # Prioritize proven sources so bounded scans do not bury them in the directory.
+    due.sort(key=lambda board: not bool(states.get(board.key) and states[board.key].proven_source))
     if limit is not None:
         due = due[:limit]
     run['target_boards'] = len(due)
@@ -201,7 +203,14 @@ def _poll_boards(root: Path, data: Path, limit: int | None, vendor: str | None, 
             held_state.lever_host = fetched_host
             states[board.key] = held_state
         else:
-            updated = advance(state, ok=True, job_count=len(fetched_jobs), now=utc_now(), status=fetched_status)
+            saved = load_listings(data)
+            strong_match = any(
+                value.get('board_key') == board.key
+                and value.get('is_listed') and not value.get('eligibility_reason')
+                and (fit_score(value.get('assessment', '')) or 0) >= .75
+                for value in saved.values()
+            )
+            updated = advance(state, ok=True, job_count=len(fetched_jobs), now=utc_now(), status=fetched_status, strong_match=strong_match)
             if job_id:
                 updated.next_check = stamp(utc_now())  # Other jobs on this board were not processed.
             updated.lever_host = fetched_host

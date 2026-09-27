@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SIX_HOURS = timedelta(hours=6)
+ONE_HOUR = timedelta(hours=1)
 ONE_DAY = timedelta(days=1)
 ONE_WEEK = timedelta(days=7)
 
@@ -17,6 +18,7 @@ class BoardState:
     lever_host: str = ""
     last_status: str = ""
     open_jobs: int | None = None
+    proven_source: bool = False
 
 
 def load_schedule(path: Path) -> dict[str, BoardState]:
@@ -30,6 +32,7 @@ def load_schedule(path: Path) -> dict[str, BoardState]:
             lever_host=value.get("lever_host") or "",
             last_status=value.get("last_status") or "",
             open_jobs=value.get("open_jobs"),
+            proven_source=bool(value.get("proven_source", False)),
         )
         for key, value in raw.items()
     }
@@ -55,7 +58,7 @@ def is_due(state: BoardState | None, now: datetime) -> bool:
     return state.next_check <= stamp(now)
 
 
-def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime, status: str) -> BoardState:
+def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime, status: str, strong_match: bool = False) -> BoardState:
     current = state or BoardState()
     if not ok:
         failures = current.consecutive_failures + 1
@@ -66,11 +69,13 @@ def advance(state: BoardState | None, *, ok: bool, job_count: int, now: datetime
             consecutive_failures=failures,
             last_status=status,
         )
-    interval = ONE_DAY if job_count == 0 else SIX_HOURS
+    proven = current.proven_source or strong_match
+    interval = ONE_DAY if job_count == 0 else ONE_HOUR if proven else SIX_HOURS
     return replace(
         current,
         next_check=stamp(now + interval),
         consecutive_failures=0,
         last_status=status,
         open_jobs=job_count,
+        proven_source=proven,
     )

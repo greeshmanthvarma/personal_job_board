@@ -1,5 +1,7 @@
 """Loopback-only job board. No employer writes or arbitrary file serving."""
 import json
+import mimetypes
+from urllib.parse import unquote, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from applications.listings import list_board_jobs
@@ -7,7 +9,20 @@ from applications.tracking import update_tracking, export_tracking
 from applications.runstate import load_run
 from applications.board_view import BOARD_HTML
 
-def make_server(data: Path, port=8765):
+def static_asset(root: Path, request_path: str):
+    path = unquote(urlsplit(request_path).path)
+    if path == '/':
+        candidate = root / 'index.html'
+    elif path.startswith('/assets/') and '..' not in path.split('/') and '\\' not in path:
+        candidate = root / path.lstrip('/')
+    else:
+        return None
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root.resolve()) or not resolved.is_file():
+        return None
+    return resolved.read_bytes(), mimetypes.guess_type(str(resolved))[0] or 'application/octet-stream'
+
+def make_server(data: Path, port=8765, frontend_root: Path | None = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # Never log private notes or request payloads.
@@ -28,6 +43,9 @@ def make_server(data: Path, port=8765):
         def do_GET(self):
             if not self.allowed_host():
                 return self.respond(403,{'error':'Invalid host'})
+            asset = static_asset(frontend_root, self.path) if frontend_root else None
+            if asset:
+                return self.respond(200, asset[0], asset[1])
             if self.path=='/':
                 return self.respond(200,BOARD_HTML.encode(),'text/html; charset=utf-8')
             if self.path=='/api/jobs':
@@ -57,7 +75,7 @@ def make_server(data: Path, port=8765):
     return ThreadingHTTPServer(('127.0.0.1',port),Handler)
 
 def serve_board(data: Path, port=8765):
-    server=make_server(data,port)
+    server=make_server(data,port,Path(__file__).resolve().parents[2] / 'frontend' / 'dist')
     print(f'Private job board: http://127.0.0.1:{server.server_port}',flush=True)
     try:
         server.serve_forever()

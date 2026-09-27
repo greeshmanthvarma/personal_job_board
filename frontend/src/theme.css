@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@custom-variant dark (&:is(.dark *));
+:root {
+  color-scheme: dark;
+  --background: #111111; --foreground: #ededed;
+  --card: #171717; --card-foreground: #ededed;
+  --popover: #1b1b1b; --popover-foreground: #ededed;
+  --primary: #ededed; --primary-foreground: #171717;
+  --secondary: #242424; --secondary-foreground: #ededed;
+  --muted: #242424; --muted-foreground: #a3a3a3;
+  --accent: #292929; --accent-foreground: #ededed;
+  --destructive: #dedede; --border: #2b2b2b; --input: #343434; --ring: #b5b5b5; --radius: .45rem;
+}
+@theme inline {
+  --font-sans: 'Geist Variable', sans-serif;
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px); --radius-md: calc(var(--radius) - 2px); --radius-lg: var(--radius); --radius-xl: calc(var(--radius) + 4px);
+}
+@layer base { * { @apply border-border; } body { @apply bg-background text-foreground font-sans; margin:0; } }
+button:not(:disabled), a[href], summary, [role="button"]:not([aria-disabled="true"]), [role="tab"]:not([aria-disabled="true"]), [role="combobox"]:not([aria-disabled="true"]), [role="checkbox"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), label:has([role="checkbox"]:not([aria-disabled="true"])) { cursor: pointer; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }

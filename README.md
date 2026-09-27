@@ -19,6 +19,17 @@ Public job discovery and manual tracking do not require an API key. For personal
 
 ## Start
 
+Build the local React interface (Node.js 22.19+ is supported by the pinned toolchain):
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+The interface uses shadcn/ui (CLI 4.21.0), React, TypeScript, Vite, and Tailwind with a monochrome dark theme. Results contains only New jobs; Saved, Applied, Interviewing, Offers, Rejected, Skipped, and Needs verification are separate workspaces. Status changes move jobs only after confirmed saves. Tracking tabs retain closed postings. Unsaved edits stay in memory across refreshes; they are not a durable offline draft.
+
 Run from this repository:
 
 ```bash
@@ -49,6 +60,8 @@ Discovery uses public ATS APIs, never employer application writes. It runs witho
 The 12,918-board directory is in `data/ats-board-directory.csv`. `--limit` caps boards, `--vendor` selects one provider, and `--board` selects one company slug. `--job-id` requires a board and vendor and processes only that listing. `--backlog` scans regardless of board schedule. Standard polling checks due boards: nonempty boards after six hours, empty boards after one day, first two failed attempts after six hours, and three or more consecutive failures after one week. There is no background scheduler installed; each poll is one pass. GETs are paced at least one second apart with jitter, bounded timeout/retries, and provider-specific parsing. Greenhouse descriptions are hydrated only for title/location matches. Concurrent scans are prevented by a local lock.
 
 ## Jev relevance and ranking
+
+Active boards that have produced an eligible open listing with mean Jev fit of at least 0.75 become proven sources and are scheduled hourly. Empty-board and failure backoff still take precedence. Bounded local scans prioritize proven sources; the fair-share cloud scheduler described in the remote spec is not installed yet. Polling intervals determine when a board becomes due, not a guarantee that every board will be refreshed within that interval.
 
 With `TYPESAFE_API_KEY` in `.env` and `profile.md` present, Jev assesses matching listings. An assessment is cached by job content and profile fingerprint. `--assessment-limit` defaults to 50 new assessments per scan; discovery continues beyond that budget or when Jev is unavailable. A later due scan can assess remaining jobs. OpenAI is not used during discovery.
 
@@ -84,6 +97,16 @@ git diff --check
 ```
 
 Install the browser test dependency with `pip install -e '.[browser]'` and `playwright install chromium`. UI tests run against temporary local data only; they do not transmit applications.
+
+Frontend checks:
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+The compiled interface is served by the local Python server. No API keys are used by the frontend. Remote API/proxy, supervised cloud scheduling, backups, and Railway deployment are specified in `docs/remote-job-board-spec.md` but are not implemented yet.
 
 ## Hosting and polling availability
 
