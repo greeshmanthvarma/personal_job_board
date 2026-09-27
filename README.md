@@ -57,7 +57,22 @@ python -m applications poll --vendor ashby --board Ambral --backlog
 
 Discovery uses public ATS APIs, never employer application writes. It runs without model keys. Titles, clearly incompatible locations, and hard eligibility requirements filter listings. Results show only postings dated within the past seven days; missing, invalid and future dates are excluded. Tracked jobs remain in their status tabs regardless of posting age. A successful full board scan marks missing listings closed; failed or job-scoped scans do not.
 
-The 12,918-board directory is in `data/ats-board-directory.csv`. `--limit` caps boards, `--vendor` selects one provider, and `--board` selects one company slug. `--job-id` requires a board and vendor and processes only that listing. `--backlog` scans regardless of board schedule. Standard polling checks due boards: nonempty boards after six hours, empty boards after one day, first two failed attempts after six hours, and three or more consecutive failures after one week. There is no background scheduler installed; each poll is one pass. GETs are paced at least one second apart with jitter, bounded timeout/retries, and provider-specific parsing. Greenhouse descriptions are hydrated only for title/location matches. Concurrent scans are prevented by a local lock.
+The 12,918-board directory is in `data/ats-board-directory.csv`. `--limit` caps boards, `--vendor` selects one provider, and `--board` selects one company slug. `--job-id` requires a board and vendor and processes only that listing. `--backlog` scans regardless of board schedule. Each manual `poll` command runs one pass; Railway's `host` process runs the background scheduler described below. GETs are paced at least one second apart with jitter, bounded timeout/retries, and provider-specific parsing. Greenhouse descriptions are hydrated only for title/location matches. Concurrent scans are prevented by a lock.
+
+### Railway polling cadence
+
+The hosted worker starts its first scan immediately, then waits **five minutes after the previous scan finishes** before starting another. Scans never overlap. The worker checks supervision and updates its heartbeat every five seconds; that heartbeat interval does not trigger a new scan.
+
+Individual boards are fetched only when due:
+
+- Proven sources with eligible strong-fit matches: every hour.
+- Other nonempty boards: every six hours.
+- Empty boards: once per day.
+- Failed boards: retry after six hours for the first two failures, then after one week for three or more consecutive failures.
+
+The default batch limits are **50 boards** and **50 new Jev assessments**. The scanner continues discovering listings after the assessment budget is exhausted. Broad discovery and proven sources share the board budget, borrowing unused slots. A batch has a twenty-minute deadline.
+
+Railway variables control these defaults: `POLL_INTERVAL_SECONDS=300`, `POLL_BOARD_LIMIT=50`, and `POLL_ASSESSMENT_LIMIT=50`. Five minutes is the delay between completed batches, not a promise to check every company every five minutes. Board due times are also not refresh guarantees: limited capacity and the directory backlog can delay a check. Remote polling continues while your laptop sleeps; the local React interface is not required for discovery.
 
 ## Jev relevance and ranking
 
@@ -69,9 +84,9 @@ Relevance is the mean of Jev's four scores: role family, level, responsibilities
 
 ## Tracking
 
-Use the status dropdown, notes box, and **Save tracking** button on each listing. States: New, Saved, Applied, Interviewing, Offer, Rejected, Skipped, and Needs verification. Applied means you manually report applying; it does not claim employer receipt. Opening an application link never changes status. The first Applied action records the date; later status changes preserve it. Notes and statuses survive refreshes, restarts, and discovery scans. Unsaved edits are labeled only after a successful save, and failed writes retain your text.
+Each job card has a direct application link and a status dropdown that saves immediately. The detail view also provides the application link, status dropdown, notes box, and **Save tracking** button. States: New, Saved, Applied, Interviewing, Offer, Rejected, Skipped, and Needs verification. Applied means you manually report applying; it does not claim employer receipt. Opening an application link never changes status. The first Applied action records the date; later status changes preserve it. Notes and statuses survive refreshes, restarts, and discovery scans. Status membership changes only after a confirmed save, and failed writes retain detail edits.
 
-Search covers company, role, location, and saved notes. Filters include status and provider, plus toggles for closed and unverified listings. Tracked closed jobs remain visible. Older open roles are not excluded by the default view. Unverified listings are not claimed currently open until refreshed. Use Needs verification when an application outcome is unknown.
+Search covers company, role, location, and saved notes. Filters include status and provider, plus toggles for closed and unverified listings. Results enforce the seven-day posting cutoff; tracked jobs remain visible regardless of age or closure. Unverified listings are not claimed currently open until refreshed. Use Needs verification when an application outcome is unknown.
 
 Export tracking CSV from the board. Cells that could be interpreted as spreadsheet formulas are escaped. `data/tracking.json` is the durable record; it is separate from discovery decisions. Tracking writes are validated, independently locked, and atomically replaced. Unknown job IDs and invalid statuses do not write anything.
 
