@@ -45,6 +45,15 @@ it('refresh does not overwrite unsaved notes',async()=>{
   await waitFor(()=>expect(vi.mocked(readBoard)).toHaveBeenCalledTimes(2))
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('My notes')
 })
+it('shows each fit check in plain language',async()=>{
+  vi.mocked(readBoard).mockResolvedValue({jobs:[{...job,assessment:'uncertain: role_family yes (0.92); level uncertain (0.68); responsibilities yes (0.86); qualifications uncertain (0.75)'}],scan:{}})
+  render(<Board/>)
+  fireEvent.click(await screen.findByRole('button',{name:'Engineer one'}))
+  expect(screen.getByText('Possible match. Experience level and required qualifications are still unclear. Role type and day-to-day work are a yes.')).toBeTruthy()
+  expect(screen.getByText('Experience level')).toBeTruthy()
+  expect(screen.getByText('68%')).toBeTruthy()
+  expect(screen.queryByText(/role_family/)).toBeNull()
+})
 it('shows a direct application link without opening details',async()=>{
   render(<Board/>)
   const link=await screen.findByRole('link',{name:'Apply to Engineer one at Example'})

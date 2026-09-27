@@ -9,10 +9,34 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { readBoard, saveTracking } from './api'
-import { workspaces, visibleJobs, mergeTracking, recentPosting, type Job, type Status, type Sort } from './model'
+import { workspaces, visibleJobs, mergeTracking, recentPosting, explainAssessment, type FitVerdict, type Job, type Status, type Sort } from './model'
 
 type Draft = { status:Status; notes:string }
 const date=(value:string)=>value?new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'Date unavailable'
+const verdictLabel: Record<FitVerdict, string> = { yes: 'Yes', no: 'No', uncertain: 'Unclear' }
+function WhyThisRole({ assessment }: { assessment?: string }) {
+  const explained = explainAssessment(assessment || '')
+  return <div>
+    <h3 className="mb-2 text-sm font-medium">Why this role</h3>
+    {!explained && <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{assessment?.trim() || 'No assessment available.'}</p>}
+    {explained && <>
+      <p className="text-sm leading-relaxed">{explained.summary}</p>
+      <ul className="mt-4 space-y-3">
+        {explained.checks.map(check => <li key={check.key} className="grid grid-cols-[5.5rem_1fr] gap-3 border-t border-border pt-3">
+          <div>
+            <Badge variant={check.verdict === 'no' ? 'destructive' : check.verdict === 'yes' ? 'secondary' : 'outline'} className="font-normal">{verdictLabel[check.verdict]}</Badge>
+            <p className="mt-1 text-xs tabular-nums text-muted-foreground">{Math.round(check.score * 100)}%</p>
+          </div>
+          <div>
+            <p className="text-sm font-medium">{check.label}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{check.detail}</p>
+          </div>
+        </li>)}
+      </ul>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">80% or higher is a yes. 20% or lower is a no. A score between those is unclear.</p>
+    </>}
+  </div>
+}
 export default function Board() {
   const [jobs,setJobs]=useState<Job[]>([]), [scan,setScan]=useState<Record<string,unknown>>({})
   const [tab,setTab]=useState<Status>('new'),[query,setQuery]=useState(''),[provider,setProvider]=useState('all'),[sort,setSort]=useState<Sort>('default')
@@ -79,7 +103,7 @@ export default function Board() {
       </TabsContent>)}
     </Tabs>
     <Sheet open={!!selected} onOpenChange={open=>{if(!open&&!saving)setSelected(null)}}><SheetContent className="w-full overflow-y-auto sm:max-w-xl"><SheetHeader><SheetTitle>{job?.title||'Unsaved job edits'}</SheetTitle><SheetDescription>{job?.company} · {job?.location}</SheetDescription></SheetHeader><div className="space-y-6 px-6 pb-8">
-      {job&&<><div className="flex flex-wrap gap-2"><Badge variant="outline">{job.fit===null?'Not assessed':`${Math.round(job.fit*100)}% fit`}</Badge><Badge variant="secondary">{job.is_listed===true?'Open':job.is_listed===false?'Closed':'Unverified'}</Badge></div>{/^https:\/\//i.test(job.link)&&<Button asChild variant="outline"><a href={job.link} target="_blank" rel="noopener noreferrer">Open application<ArrowUpRight/></a></Button>}<div><h3 className="mb-2 text-sm font-medium">Why this role</h3><p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{job.assessment||'No assessment available.'}</p></div><details><summary className="cursor-pointer text-sm font-medium">Job description</summary><p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{job.description||'Description unavailable.'}</p></details></>}
+      {job&&<><div className="flex flex-wrap gap-2"><Badge variant="outline">{job.fit===null?'Not assessed':`${Math.round(job.fit*100)}% fit`}</Badge><Badge variant="secondary">{job.is_listed===true?'Open':job.is_listed===false?'Closed':'Unverified'}</Badge></div>{/^https:\/\//i.test(job.link)&&<Button asChild variant="outline"><a href={job.link} target="_blank" rel="noopener noreferrer">Open application<ArrowUpRight/></a></Button>}<WhyThisRole assessment={job.assessment}/><details><summary className="cursor-pointer text-sm font-medium">Job description</summary><p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{job.description||'Description unavailable.'}</p></details></>}
       {draft&&<div className="space-y-4 border-t pt-5"><div className="space-y-2"><label className="text-sm" id="status-label">Application status</label><Select value={draft.status} onValueChange={v=>edit({status:v as Status})} disabled={saving}><SelectTrigger aria-labelledby="status-label" className="w-full"><SelectValue/></SelectTrigger><SelectContent>{workspaces.map(([s,l])=><SelectItem key={s} value={s}>{s==='new'?'New':l}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><label htmlFor="notes" className="text-sm">Notes</label><Textarea id="notes" placeholder="Keep the useful details here." value={draft.notes} maxLength={10000} onChange={e=>edit({notes:e.target.value})} disabled={saving} className="min-h-28"/></div>{saveError&&<p role="alert" className="text-sm">{saveError}</p>}<Button onClick={()=>void save()} disabled={saving||!job}>{saving?'Saving…':'Save tracking'}</Button>{job?.applied_at&&<p className="text-xs text-muted-foreground">Applied {date(job.applied_at)}</p>}<p className="text-xs text-muted-foreground">Status moves only after a confirmed save. Applying happens on the employer’s site.</p></div>}
     </div></SheetContent></Sheet>
     <footer className="mt-12 text-xs text-muted-foreground">Private by design. Apply deliberately.</footer>
