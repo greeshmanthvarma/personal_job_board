@@ -3,13 +3,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Board from './Board'
-import { readBoard,saveTracking } from './api'
+import { readBoard,readJob,saveTracking } from './api'
 import type { Job } from './model'
-vi.mock('./api',()=>({readBoard:vi.fn(),saveTracking:vi.fn()}))
+vi.mock('./api',()=>({readBoard:vi.fn(),readJob:vi.fn(),saveTracking:vi.fn()}))
 const job:Job={identity:'ashby\t1',company:'Example',title:'Engineer one',location:'US',portal:'ashby',link:'https://example.com',description:'text',assessment:'',fit:null,priority:0,status:'new',notes:'',posted_at:'',checked_at:'',is_listed:true,applied_at:'',updated_at:''}
 beforeEach(()=>{
   job.posted_at=new Date().toISOString()
-  vi.mocked(readBoard).mockResolvedValue({jobs:[job],scan:{}} as Awaited<ReturnType<typeof readBoard>>)
+  vi.mocked(readBoard).mockResolvedValue({jobs:[job],total:1,counts:{new:1},scan:{}} as Awaited<ReturnType<typeof readBoard>>)
+  vi.mocked(readJob).mockResolvedValue({description:job.description||'',assessment:job.assessment||''})
   vi.mocked(saveTracking).mockReset()
   HTMLElement.prototype.scrollIntoView=vi.fn()
   HTMLElement.prototype.hasPointerCapture=()=>false
@@ -46,7 +47,7 @@ it('refresh does not overwrite unsaved notes',async()=>{
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('My notes')
 })
 it('shows each fit check in plain language',async()=>{
-  vi.mocked(readBoard).mockResolvedValue({jobs:[{...job,assessment:'uncertain: role_family yes (0.92); level uncertain (0.68); responsibilities yes (0.86); qualifications uncertain (0.75)'}],scan:{}})
+  vi.mocked(readBoard).mockResolvedValue({jobs:[{...job,assessment:'uncertain: role_family yes (0.92); level uncertain (0.68); responsibilities yes (0.86); qualifications uncertain (0.75)'}],total:1,counts:{new:1},scan:{}})
   render(<Board/>)
   fireEvent.click(await screen.findByRole('button',{name:'Engineer one'}))
   expect(screen.getByText('Possible match. Experience level and required qualifications are still unclear. Role type and day-to-day work are a yes.')).toBeTruthy()
@@ -63,7 +64,7 @@ it('shows a direct application link without opening details',async()=>{
 })
 it('card status saves existing notes and moves only after confirmation',async()=>{
   let finish:(value:Awaited<ReturnType<typeof saveTracking>>)=>void=()=>{}
-  vi.mocked(readBoard).mockResolvedValue({jobs:[{...job,notes:'Existing notes'}],scan:{}})
+  vi.mocked(readBoard).mockResolvedValue({jobs:[{...job,notes:'Existing notes'}],total:1,counts:{new:1},scan:{}})
   vi.mocked(saveTracking).mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
   render(<Board/>);const user=userEvent.setup()
   await user.click(await screen.findByRole('combobox',{name:'Status for Engineer one at Example'}))

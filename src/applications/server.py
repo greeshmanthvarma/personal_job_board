@@ -4,7 +4,7 @@ import mimetypes
 from urllib.parse import unquote, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from applications.listings import list_board_jobs
+from applications.listings import board_job_detail, board_page, list_board_jobs
 from applications.tracking import update_tracking, export_tracking
 from applications.runstate import load_run
 from applications.board_view import BOARD_HTML
@@ -55,11 +55,29 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None, remote
                 return self.respond(200, asset[0], asset[1])
             if self.path=='/':
                 return self.respond(200,BOARD_HTML.encode(),'text/html; charset=utf-8')
-            if self.path=='/api/jobs':
+            parsed = urlsplit(self.path)
+            if len(self.path) > 2048:
+                return self.respond(400, {'error': 'Invalid request'})
+            if parsed.path == '/api/jobs':
                 if remote_client:
                     return self.forward(self.path)
-                return self.respond(200,{'jobs':list_board_jobs(data),'scan':load_run(data/'scan-state.json')})
-            if self.path=='/api/export':
+                if parsed.query:
+                    try:
+                        page = board_page(data, parsed.query)
+                    except ValueError:
+                        return self.respond(400, {'error': 'Invalid request'})
+                    return self.respond(200, {**page, 'scan': load_run(data/'scan-state.json')})
+                return self.respond(200, {'jobs': list_board_jobs(data), 'scan': load_run(data/'scan-state.json')})
+            if parsed.path == '/api/jobs/detail' and not remote_client:
+                try:
+                    return self.respond(200, board_job_detail(data, parsed.query))
+                except ValueError:
+                    return self.respond(400, {'error': 'Invalid request'})
+                except LookupError:
+                    return self.respond(404, {'error': 'Unknown job'})
+            if parsed.path == '/api/jobs/detail' and remote_client:
+                return self.forward(self.path)
+            if parsed.path == '/api/export' and not parsed.query:
                 if remote_client:
                     return self.forward(self.path)
                 return self.respond(200,export_tracking(data),'text/csv; charset=utf-8','job-tracking.csv')

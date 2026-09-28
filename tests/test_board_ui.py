@@ -1,5 +1,6 @@
 import json
 import tempfile
+from urllib.parse import quote
 import threading
 import unittest
 import urllib.request
@@ -62,6 +63,19 @@ class BoardTests(unittest.TestCase):
                 page.screenshot(path='/private/tmp/job-board-mobile.png',full_page=True)
             finally:
                 browser.close()
+    def test_paged_request_omits_the_description(self):
+        with self.request('/api/jobs?status=new&limit=40') as response:
+            page = json.loads(response.read())
+        self.assertEqual(page['jobs'], [])
+        self.assertNotIn('Build software', json.dumps(page))
+        with self.request('/api/jobs/detail?identity=' + quote('ashby\t123')) as response:
+            self.assertEqual(json.loads(response.read())['description'], 'Build software')
+        with self.request('/api/jobs') as response:
+            self.assertEqual(json.loads(response.read())['jobs'][0]['description'], 'Build software')
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.request('/api/jobs?status=nope')
+        self.assertEqual(error.exception.code, 400)
+        error.exception.close()
     def test_open_link_does_not_mark_applied(self):
         with self.request('/') as response:
             self.assertIn(b'Open application',response.read())

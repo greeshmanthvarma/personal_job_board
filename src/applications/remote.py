@@ -6,7 +6,8 @@ import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from applications.listings import list_board_jobs
+from urllib.parse import urlsplit
+from applications.listings import board_job_detail, board_page, list_board_jobs
 from applications.tracking import update_tracking, export_tracking
 from applications.runstate import load_run
 
@@ -87,21 +88,34 @@ def make_remote_server(data: Path, token: str, port: int, host='0.0.0.0'):
             if not self.authorized():
                 return
             try:
-                if self.path == '/api/v1/jobs':
+                parsed = urlsplit(self.path)
+                if len(self.path) > 2048:
+                    return self.error(400, 'invalid_request', 'Invalid request')
+                if parsed.path == '/api/v1/jobs':
                     scan = load_run(data/'scan-state.json')
                     # Whitelist status metadata, never expose PID or raw diagnostics.
                     scan = {k: v for k,v in scan.items() if k in {'status','started_at','updated_at','processed_boards','target_boards','current_board'}}
                     scheduler = data/'scheduler-state.json'
                     if scheduler.exists():
                         scan['scheduler'] = json.loads(scheduler.read_text())
+                    if parsed.query:
+                        return self.respond(200, {**board_page(data, parsed.query), 'scan': scan})
                     jobs = list_board_jobs(data)
                     for job in jobs:
                         job.pop('fields', None)
                     return self.respond(200, {'jobs': jobs, 'scan': scan})
-                if self.path == '/api/v1/export':
+                if parsed.path == '/api/v1/jobs/detail':
+                    return self.respond(200, board_job_detail(data, parsed.query))
+                if parsed.path == '/api/v1/export' and not parsed.query:
                     return self.respond(200, export_tracking(data), 'text/csv; charset=utf-8')
                 self.error(404, 'not_found', 'Not found')
-            except (ValueError, TypeError, KeyError, OSError):
+            except LookupError:
+                self.error(404, 'not_found', 'Unknown job')
+            except ValueError as err:
+                if str(err) == 'Invalid request':
+                    return self.error(400, 'invalid_request', 'Invalid request')
+                self.error(503, 'storage_unavailable', 'Stored data unavailable; no data was reset')
+            except (TypeError, KeyError, OSError):
                 self.error(503, 'storage_unavailable', 'Stored data unavailable; no data was reset')
         def do_POST(self):
             if not self.authorized():

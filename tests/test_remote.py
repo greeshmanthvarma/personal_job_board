@@ -1,5 +1,7 @@
 import json
 import tempfile
+from datetime import datetime, timezone
+from urllib.parse import quote
 import threading
 import unittest
 import urllib.request
@@ -41,6 +43,19 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(json.loads((self.data/'tracking.json').read_text())['ashby\t1']['status'],'applied')
         self.assertIn(b'private test note',self.request('/api/v1/export')[1])
         body['identity']='unknown';self.assertEqual(self.request('/api/v1/tracking',body=body)[0],400)
+    def test_paged_jobs_leave_descriptions_for_detail(self):
+        posted = datetime.now(timezone.utc).isoformat()
+        (self.data/'jobs.json').write_text(json.dumps({'ashby\t1':{'identity':'ashby\t1','company':'Example','title':'Engineer','portal':'ashby','job_id':'1','location':'US','link':'https://example.com','is_listed':True,'description':'SECRET DESCRIPTION','posted_at':posted}}))
+        status, body = self.request('/api/v1/jobs?status=new&limit=40')
+        self.assertEqual(status, 200)
+        page = json.loads(body)
+        self.assertEqual(page['total'], 1)
+        self.assertNotIn('description', page['jobs'][0])
+        self.assertNotIn(b'SECRET', body)
+        status, body = self.request('/api/v1/jobs/detail?identity=' + quote('ashby\t1'))
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['description'], 'SECRET DESCRIPTION')
+        self.assertEqual(self.request('/api/v1/jobs?status=nope')[0], 400)
     def test_corruption_is_sanitized(self):
         (self.data/'jobs.json').write_text('PRIVATE invalid json')
         status,body=self.request('/api/v1/jobs')

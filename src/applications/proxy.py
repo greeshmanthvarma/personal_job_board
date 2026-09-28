@@ -7,7 +7,7 @@ import urllib.request
 from urllib.parse import urlsplit
 from applications.http import ssl_context
 
-ROUTES = {'/api/jobs':'/api/v1/jobs', '/api/export':'/api/v1/export', '/api/tracking':'/api/v1/tracking'}
+ROUTES = {'/api/jobs':'/api/v1/jobs', '/api/jobs/detail':'/api/v1/jobs/detail', '/api/export':'/api/v1/export', '/api/tracking':'/api/v1/tracking'}
 MAX_RESPONSE = 32*1024*1024
 
 class ProxyError(Exception):
@@ -44,7 +44,8 @@ class RemoteClient:
         self.opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(), urllib.request.HTTPSHandler(context=ssl_context()))
         self.resolver = resolver
     def request(self, path, payload=None):
-        if path not in ROUTES or (payload is not None) != (path == '/api/tracking'):
+        parsed = urlsplit(path)
+        if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path not in ROUTES or (payload is not None) != (parsed.path == '/api/tracking') or (payload is not None and parsed.query) or len(path) > 2048:
             raise ValueError('Unsupported forwarding operation')
         try:
             addresses = self.resolver(self.host,443,type=socket.SOCK_STREAM)
@@ -54,7 +55,8 @@ class RemoteClient:
             data = None
             if payload is not None:
                 data=json.dumps(payload).encode();headers['Content-Type']='application/json'
-            request=urllib.request.Request(self.origin+ROUTES[path],data=data,headers=headers)
+            target = ROUTES[parsed.path] + ('?' + parsed.query if parsed.query else '')
+            request=urllib.request.Request(self.origin+target,data=data,headers=headers)
             try:
                 response=self.opener.open(request,timeout=15)
             except urllib.error.HTTPError as err:
@@ -68,7 +70,7 @@ class RemoteClient:
                     raise ProxyError(502,'Remote response is too large')
                 if not 200<=status<300:
                     raise ProxyError(502,'Remote request failed; save not confirmed' if payload else 'Remote request failed')
-                return status,body,'text/csv; charset=utf-8' if path=='/api/export' else 'application/json; charset=utf-8'
+                return status,body,'text/csv; charset=utf-8' if parsed.path=='/api/export' else 'application/json; charset=utf-8'
         except (TimeoutError, socket.timeout) as err:
             raise ProxyError(504,'Remote request timed out; save may already have completed') from err
         except (urllib.error.URLError,OSError) as err:

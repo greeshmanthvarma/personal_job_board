@@ -21,6 +21,11 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(req.get_header('Authorization'),'Bearer '+TOKEN)
         self.assertIsNone(req.get_header('Origin'))
         with self.assertRaises(ValueError):client.request('/profile.md')
+        opener.open.side_effect = lambda *_args, **_kwargs: Response(b'{"jobs":[]}')
+        client.request('/api/jobs?status=new&limit=40')
+        self.assertEqual(opener.open.call_args.args[0].full_url,'https://board.example.com/api/v1/jobs?status=new&limit=40')
+        client.request('/api/jobs/detail?identity=ashby%091')
+        self.assertEqual(opener.open.call_args.args[0].full_url,'https://board.example.com/api/v1/jobs/detail?identity=ashby%091')
     def test_redirect_and_private_resolution_rejected(self):
         opener=Mock();response=Response(b'');response.code=302;opener.open.return_value=response
         with self.assertRaises(ProxyError):RemoteClient('https://board.example.com',TOKEN,opener,resolver).request('/api/jobs')

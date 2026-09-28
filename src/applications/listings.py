@@ -4,10 +4,21 @@ import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs
 from applications.keywords import title_decision, location_decision
 from applications.eligibility import eligibility_reason
 from applications.log import latest_by_job, load_records, load_drafts
 from applications.storage import atomic_json, locked_data
+from applications.tracking import STATUSES
+
+PAGE_SIZE = 40
+CARD_KEYS = (
+    'identity', 'portal', 'job_id', 'company', 'title', 'location', 'link', 'posted_at', 'checked_at',
+    'is_listed', 'fit', 'priority', 'recency', 'status', 'notes', 'applied_at', 'updated_at', 'assessment',
+)
+_QUERY_KEYS = {'status', 'q', 'provider', 'sort', 'closed', 'unverified', 'offset', 'limit'}
+_PROVIDERS = {'all', 'ashby', 'greenhouse', 'lever'}
+_SORTS = {'default', 'newest', 'fit'}
 
 def load_listings(data: Path) -> dict:
     path = data/'jobs.json'
@@ -95,3 +106,98 @@ def list_board_jobs(data: Path) -> list[dict]:
         value['fields'] = drafts.get(key, {}).get('fields', [])
         result.append(value)
     return sorted(result, key=lambda j: (j['priority'],j.get('posted_at','')), reverse=True)
+
+def recent_posting(job: dict, now=None) -> bool:
+    now = now or datetime.now(timezone.utc)
+    try:
+        posted = datetime.fromisoformat((job.get('posted_at') or '').replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    posted = posted if posted.tzinfo else posted.replace(tzinfo=timezone.utc)
+    age = (now - posted).total_seconds()
+    return 0 <= age <= 7 * 86400
+
+def _query_value(params: dict, name: str, default: str) -> str:
+    values = params.get(name)
+    if values is None:
+        return default
+    if len(values) != 1:
+        raise ValueError('Invalid request')
+    return values[0]
+
+def parse_board_query(params: dict) -> dict:
+    if set(params) - _QUERY_KEYS:
+        raise ValueError('Invalid request')
+    status = _query_value(params, 'status', '')
+    provider = _query_value(params, 'provider', 'all')
+    sort = _query_value(params, 'sort', 'default')
+    query = _query_value(params, 'q', '')
+    if status not in STATUSES or provider not in _PROVIDERS or sort not in _SORTS or len(query) > 200:
+        raise ValueError('Invalid request')
+    def flag(name: str) -> bool:
+        value = _query_value(params, name, '0')
+        if value not in {'0', '1'}:
+            raise ValueError('Invalid request')
+        return value == '1'
+    def number(name: str, default: int, upper: int, lower: int = 0) -> int:
+        raw = _query_value(params, name, str(default))
+        if not raw.isascii() or not raw.isdigit():
+            raise ValueError('Invalid request')
+        value = int(raw)
+        if value < lower or value > upper:
+            raise ValueError('Invalid request')
+        return value
+    return {'status': status, 'q': query, 'provider': provider, 'sort': sort, 'closed': flag('closed'), 'unverified': flag('unverified'), 'offset': number('offset', 0, 100_000), 'limit': number('limit', PAGE_SIZE, PAGE_SIZE, 1)}
+
+def _visible(job: dict, spec: dict, now) -> bool:
+    if job.get('status') != spec['status'] or (spec['provider'] != 'all' and job.get('portal') != spec['provider']):
+        return False
+    term = spec['q'].strip().lower()
+    if term and term not in ' '.join(str(job.get(key) or '') for key in ('title', 'company', 'location', 'notes')).lower():
+        return False
+    if spec['status'] != 'new':
+        return True
+    listed = job.get('is_listed')
+    return recent_posting(job, now) and (listed is not False or spec['closed']) and (listed is not None or spec['unverified'])
+
+def _ordered(jobs: list[dict], spec: dict) -> list[dict]:
+    if spec['sort'] == 'fit':
+        return sorted(jobs, key=lambda job: job['fit'] if isinstance(job.get('fit'), (int, float)) else -1, reverse=True)
+    if spec['sort'] == 'newest':
+        return sorted(jobs, key=lambda job: job.get('posted_at') or '', reverse=True)
+    if spec['status'] in {'new', 'saved'}:
+        return sorted(jobs, key=lambda job: job.get('priority') or 0, reverse=True)
+    return sorted(jobs, key=lambda job: job.get('updated_at') or '', reverse=True)
+
+def page_board_jobs(data: Path, spec: dict, now=None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    jobs = list_board_jobs(data)
+    counts = {status: 0 for status in STATUSES}
+    for job in jobs:
+        status = job.get('status')
+        if status in counts and (status != 'new' or recent_posting(job, now)):
+            counts[status] += 1
+    matched = _ordered([job for job in jobs if _visible(job, spec, now)], spec)
+    offset, limit = spec['offset'], spec['limit']
+    return {'jobs': [{key: job.get(key) for key in CARD_KEYS} for job in matched[offset:offset + limit]], 'total': len(matched), 'counts': counts}
+
+def _query(query: str, fields: int) -> dict:
+    if len(query) > 2048:
+        raise ValueError('Invalid request')
+    try:
+        return parse_qs(query, keep_blank_values=True, max_num_fields=fields, separator='&')
+    except ValueError:
+        raise ValueError('Invalid request') from None
+
+def board_page(data: Path, query: str, now=None) -> dict:
+    return page_board_jobs(data, parse_board_query(_query(query, len(_QUERY_KEYS))), now)
+
+def board_job_detail(data: Path, query: str) -> dict:
+    params = _query(query, 1)
+    identity = _query_value(params, 'identity', '')
+    if set(params) != {'identity'} or not identity or len(identity) > 500 or any(char in identity for char in '\r\n'):
+        raise ValueError('Invalid request')
+    for job in list_board_jobs(data):
+        if job.get('identity') == identity:
+            return {'description': job.get('description') or '', 'assessment': job.get('assessment') or ''}
+    raise LookupError('Unknown job')

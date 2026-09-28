@@ -1,10 +1,12 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from datetime import datetime, timezone
 from applications.models import JobPosting, Board, Record
 from applications.log import ApplicationLog
-from applications.listings import save_listings, list_board_jobs, ranking
+from urllib.parse import quote
+from applications.listings import save_listings, list_board_jobs, ranking, board_page, board_job_detail
 from unittest.mock import patch
 from applications.cli import poll_boards
 from applications.portals import BoardFetch
@@ -83,3 +85,25 @@ class ListingTests(unittest.TestCase):
             data = Path(folder)
             ApplicationLog(data/'applications.csv').append(Record('now','ashby','123','Engineer','Ambral','https://jobs.ashbyhq.com/Ambral/123','blocked','No explicit employer confirmation; manual review required'))
             self.assertEqual(list_board_jobs(data)[0]['status'],'needs_verification')
+
+    def test_page_keeps_descriptions_off_the_list(self):
+        now = datetime(2026, 9, 28, 12, tzinfo=timezone.utc)
+        posted = datetime(2026, 9, 28, 6, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            board = Board('ashby', 'Example', 'example')
+            jobs = [JobPosting('ashby', str(i), f'Software Engineer {i}', 'Example', 'USA', f'https://jobs.ashbyhq.com/example/{i}', 'SECRET DESCRIPTION', posted_at=posted) for i in range(45)]
+            save_listings(data, jobs, 'now', board=board)
+            page = board_page(data, 'status=new&limit=40', now)
+            self.assertEqual((len(page['jobs']), page['total'], page['counts']['new']), (40, 45, 45))
+            self.assertNotIn('description', page['jobs'][0])
+            self.assertNotIn('SECRET', json.dumps(page))
+            self.assertEqual(len(board_page(data, 'status=new&offset=40', now)['jobs']), 5)
+            self.assertEqual(board_page(data, 'status=new&q=missing', now)['total'], 0)
+            self.assertEqual(board_page(data, 'status=new', now.replace(day=6, month=10))['counts']['new'], 0)
+            detail = board_job_detail(data, 'identity=' + quote(page['jobs'][0]['identity']))
+            self.assertEqual(detail['description'], 'SECRET DESCRIPTION')
+            with self.assertRaises(ValueError):
+                board_page(data, 'status=new&limit=41', now)
+            with self.assertRaises(LookupError):
+                board_job_detail(data, 'identity=' + quote('ashby\tmissing'))
