@@ -14,7 +14,7 @@ class HostingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):config_from_env(bad)
             env['TYPESAFE_API_KEY']='private'
             with self.assertRaises(ValueError):config_from_env(env)
-    def test_worker_no_overlap_and_restart_backoff(self):
+    def test_worker_no_overlap_and_immediate_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             config=config_from_env({'BOARD_API_TOKEN':'x'*40,'DATA_DIR':tmp,'RAILWAY_VOLUME_MOUNT_PATH':tmp})
             clock=[0];child=Mock();child.poll.return_value=None;spawn=Mock(return_value=child)
@@ -22,5 +22,4 @@ class HostingTests(unittest.TestCase):
             worker.tick();worker.tick();self.assertEqual(spawn.call_count,1)
             clock[0]=1201;worker.tick();child.send_signal.assert_called_once()
             child.poll.return_value=1;worker.tick();self.assertEqual(worker.state['last_error'],'scan_failed')
-            worker.tick();self.assertEqual(spawn.call_count,1)
-            clock[0]+=301;worker.tick();self.assertEqual(spawn.call_count,2)
+            worker.tick();self.assertEqual(spawn.call_count,2)

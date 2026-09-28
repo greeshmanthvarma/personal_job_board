@@ -15,9 +15,9 @@ Required variables:
 
 Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`. Startup rejects missing/mismatched volume settings and corrupted stored JSON. The entrypoint adjusts ownership of the mounted data directory and known files, then drops to UID/GID 10001 before serving or scanning. Do not override the start command with `serve`; it is local-only. The configured start command is `python -m applications.volume_entrypoint`.
 
-Optional variables: `POLL_INTERVAL_SECONDS=300`, `POLL_BOARD_LIMIT=50`, `POLL_ASSESSMENT_LIMIT=50`. These are bounded scheduling budgets. Limits do not promise that all directory boards refresh every six hours. No OpenAI key is needed in Railway.
+Optional variables: `POLL_BOARD_LIMIT=50`, `POLL_ASSESSMENT_LIMIT=50`. These are bounded scheduling budgets. Limits do not promise that all directory boards refresh every six hours. No OpenAI key is needed in Railway.
 
-The worker wakes every five seconds for heartbeat/supervision and starts at most one polling subprocess per five-minute scheduling interval, waiting until the last batch finishes. Broad discovery and boards currently hiring engineers share the batch budget. HTTP stays available during scanning. Requests/assessments/boards have deadlines, and batches have a twenty-minute deadline. Graceful interruption is attempted first; a stuck process is terminated after 45 seconds and killed only if it still fails to exit. Atomic persistence protects against partial JSON; interrupted work remains due. A deployment restart marks old running scan status interrupted.
+The worker wakes every five seconds for heartbeat/supervision and starts the next polling subprocess as soon as the previous one has exited. Broad discovery and boards currently hiring engineers share the batch budget. HTTP stays available during scanning. Requests/assessments/boards have deadlines, and batches have a twenty-minute deadline. Graceful interruption is attempted first; a stuck process is terminated after 45 seconds and killed only if it still fails to exit. Atomic persistence protects against partial JSON; interrupted work remains due. A deployment restart marks old running scan status interrupted.
 
 ## Local frontend connection
 

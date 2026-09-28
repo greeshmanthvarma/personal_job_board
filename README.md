@@ -61,7 +61,7 @@ The 12,918-board directory is in `data/ats-board-directory.csv`. `--limit` caps 
 
 ### Railway polling cadence
 
-The hosted worker starts its first scan immediately, then waits **five minutes after the previous scan finishes** before starting another. Scans never overlap. The worker checks supervision and updates its heartbeat every five seconds; that heartbeat interval does not trigger a new scan.
+The hosted worker starts its first scan immediately. When a scan exits, the next one starts on the following supervision check. Scans never overlap. The worker checks supervision and updates its heartbeat every five seconds.
 
 Individual boards are fetched only when due:
 
@@ -72,7 +72,7 @@ Individual boards are fetched only when due:
 
 The default batch limits are **50 boards** and **50 new Jev assessments**. The scanner continues discovering listings after the assessment budget is exhausted. Broad discovery and boards currently hiring engineers share the board budget, borrowing unused slots. A batch has a twenty-minute deadline.
 
-Railway variables control these defaults: `POLL_INTERVAL_SECONDS=300`, `POLL_BOARD_LIMIT=50`, and `POLL_ASSESSMENT_LIMIT=50`. Five minutes is the delay between completed batches, not a promise to check every company every five minutes. Board due times are also not refresh guarantees: limited capacity and the directory backlog can delay a check. Remote polling continues while your laptop sleeps; the local React interface is not required for discovery.
+Railway variables control these defaults: `POLL_BOARD_LIMIT=50` and `POLL_ASSESSMENT_LIMIT=50`. Board due times are not refresh guarantees: limited capacity and the directory backlog can delay a check. Remote polling continues while your laptop sleeps; the local React interface is not required for discovery.
 
 ## Jev relevance and ranking
 

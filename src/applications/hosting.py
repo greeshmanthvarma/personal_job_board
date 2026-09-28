@@ -17,7 +17,6 @@ class HostConfig:
     data: Path
     token: str
     port: int
-    interval: int
     boards: int
     assessments: int
 
@@ -33,7 +32,7 @@ def config_from_env(env):
         value=int(env.get(key,str(default)))
         if not low<=value<=high:raise ValueError(f'{key} is outside its supported range')
         return value
-    config=HostConfig(data,token,number('PORT',8080,1,65535),number('POLL_INTERVAL_SECONDS',300,300,86400),number('POLL_BOARD_LIMIT',50,1,100),number('POLL_ASSESSMENT_LIMIT',50,0,100))
+    config=HostConfig(data,token,number('PORT',8080,1,65535),number('POLL_BOARD_LIMIT',50,1,100),number('POLL_ASSESSMENT_LIMIT',50,0,100))
     if env.get('TYPESAFE_API_KEY') and not (env.get('PROFILE_TEXT','').strip() or (data/'profile.md').is_file()):
         raise ValueError('Set PROFILE_TEXT or provision /data/profile.md for Jev assessments')
     for name in ('jobs.json','tracking.json','board-schedule.json','scan-state.json','scheduler-state.json'):
@@ -56,7 +55,7 @@ class PollWorker:
             result=self.child.poll()
             if result is not None:
                 self.state.update(status='idle',last_completed_at=stamp(utc_now()),last_error='' if result==0 else 'scan_failed')
-                self.child=None;self.interrupted_at=None;self.next_at=now+self.config.interval
+                self.child=None;self.interrupted_at=None;self.next_at=now
             elif now-self.started>=1200 and self.interrupted_at is None:
                 self.child.send_signal(signal.SIGINT);self.interrupted_at=now
                 self.state.update(status='stopping',last_error='scan_deadline')
@@ -64,7 +63,7 @@ class PollWorker:
                 self.child.terminate()
                 try:self.child.wait(timeout=5)
                 except subprocess.TimeoutExpired:self.child.kill();self.child.wait(timeout=5)
-                self.child=None;self.next_at=now+self.config.interval
+                self.child=None;self.next_at=now
                 self.state.update(status='idle',last_error='scan_deadline')
         elif now>=self.next_at and not self.stop.is_set():
             env=dict(os.environ,APPLICATIONS_HOSTED='1')
