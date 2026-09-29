@@ -32,6 +32,31 @@ def strip_html(value: str) -> str:
     return _SPACE.sub(" ", text).strip()
 
 
+_BREAK = re.compile(r"(?i)<\s*/\s*(?:p|div|h[1-6]|tr|section|article|blockquote|ul|ol|li)\s*>")
+_ITEM = re.compile(r"(?i)<\s*li\b[^>]*>")
+_BR = re.compile(r"(?i)<\s*br\s*/?\s*>")
+_BLANK = re.compile(r"\n{3,}")
+
+
+def html_to_text(value: str) -> str:
+    """Readable plain text. Employer HTML is never returned for rendering."""
+    text = html.unescape(value or "").replace("\xa0", " ")
+    text = _TAG.sub(" ", text)
+    text = _BR.sub("\n", text)
+    text = _ITEM.sub("\n- ", text)
+    text = _BREAK.sub("\n", text)
+    text = _MARKUP.sub("", text)
+    text = html.unescape(text)
+    lines = [_SPACE.sub(" ", line).strip() for line in text.splitlines()]
+    kept = []
+    for line in lines:
+        if line:
+            kept.append(line)
+        elif kept and kept[-1] != "":
+            kept.append("")
+    return "\n".join(kept).strip()
+
+
 def snippet(text: str, start: int, end: int, pad: int = 70) -> str:
     chunk = text[max(0, start - pad) : min(len(text), end + pad)]
     return _SPACE.sub(" ", chunk).strip()

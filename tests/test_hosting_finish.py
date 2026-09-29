@@ -39,6 +39,12 @@ class FinishTests(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(req)
                     self.assertEqual(error.exception.code,expected);error.exception.close()
                 self.assertEqual(client.request.call_count,1)
+                client.request.side_effect=None
+                client.request.return_value=(200, json.dumps({'description':'<p>Build <strong>software</strong>.</p><script>bad()</script>','assessment':''}).encode(), 'application/json; charset=utf-8')
+                with urllib.request.urlopen(urllib.request.Request(origin+'/api/jobs/detail?identity=greenhouse%099')) as response:
+                    description=json.loads(response.read())['description']
+                self.assertEqual(description,'Build software.')
+                self.assertNotIn('bad()', description)
                 self.assertFalse((data/'tracking.json').exists())
             finally:
                 server.shutdown();server.server_close();thread.join()

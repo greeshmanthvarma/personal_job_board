@@ -5,6 +5,7 @@ from urllib.parse import unquote, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from applications.listings import board_job_detail, board_page, list_board_jobs
+from applications.textutil import html_to_text
 from applications.tracking import update_tracking, export_tracking
 from applications.runstate import load_run
 from applications.board_view import BOARD_HTML
@@ -21,6 +22,16 @@ def static_asset(root: Path, request_path: str):
     if not resolved.is_relative_to(root.resolve()) or not resolved.is_file():
         return None
     return resolved.read_bytes(), mimetypes.guess_type(str(resolved))[0] or 'application/octet-stream'
+
+def _plain_detail(body: bytes) -> bytes:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return body
+    if isinstance(payload, dict) and isinstance(payload.get('description'), str):
+        payload['description'] = html_to_text(payload['description'])
+        return json.dumps(payload).encode()
+    return body
 
 def make_server(data: Path, port=8765, frontend_root: Path | None = None, remote_client=None):
     class Handler(BaseHTTPRequestHandler):
@@ -44,6 +55,8 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None, remote
             from applications.proxy import ProxyError
             try:
                 status, body, content_type = remote_client.request(path, payload)
+                if urlsplit(path).path == '/api/jobs/detail' and content_type.startswith('application/json'):
+                    body = _plain_detail(body)
                 return self.respond(status, body, content_type, 'job-tracking.csv' if path == '/api/export' else None)
             except ProxyError as err:
                 return self.respond(err.status, {'error': {'code':'remote_unavailable','message':str(err)}})

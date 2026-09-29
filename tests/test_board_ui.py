@@ -76,6 +76,13 @@ class BoardTests(unittest.TestCase):
             self.request('/api/jobs?status=nope')
         self.assertEqual(error.exception.code, 400)
         error.exception.close()
+    def test_greenhouse_html_description_is_plain_text(self):
+        save_listings(self.data,[JobPosting('greenhouse','9','Software Engineer','Example','USA','https://boards.greenhouse.io/example/jobs/9','<div><h2>Who We Are</h2><p>Build software.</p><script>bad()</script></div>')],'2026-09-26T00:00:00Z',board=Board('greenhouse','Example','example'))
+        with self.request('/api/jobs/detail?identity=' + quote('greenhouse\t9')) as response:
+            description = json.loads(response.read())['description']
+        self.assertEqual(description, 'Who We Are\nBuild software.')
+        self.assertNotIn('<', description)
+        self.assertNotIn('bad()', description)
     def test_open_link_does_not_mark_applied(self):
         with self.request('/') as response:
             self.assertIn(b'Open application',response.read())

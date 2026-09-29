@@ -10,6 +10,7 @@ from applications.eligibility import eligibility_reason
 from applications.log import latest_by_job, load_records, load_drafts
 from applications.storage import atomic_json, locked_data
 from applications.tracking import STATUSES
+from applications.textutil import html_to_text
 
 PAGE_SIZE = 40
 CARD_KEYS = (
@@ -199,5 +200,5 @@ def board_job_detail(data: Path, query: str) -> dict:
         raise ValueError('Invalid request')
     for job in list_board_jobs(data):
         if job.get('identity') == identity:
-            return {'description': job.get('description') or '', 'assessment': job.get('assessment') or ''}
+            return {'description': html_to_text(job.get('description') or ''), 'assessment': job.get('assessment') or ''}
     raise LookupError('Unknown job')

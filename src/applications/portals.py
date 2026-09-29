@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from applications.models import Board, JobPosting, Question
-from applications.textutil import strip_html
+from applications.textutil import html_to_text, strip_html
 from applications.identity import canonical_id
 
 
@@ -70,7 +70,7 @@ def parse_greenhouse_jobs(payload: dict, board: Board) -> list[JobPosting]:
                 company=item.get("company_name") or board.display_name,
                 location=name or "",
                 link=item.get("absolute_url") or "",
-                description_text=strip_html(item.get("content") or ""),
+                description_text=html_to_text(item.get("content") or ""),
                 board_slug=board.slug,
                 apply_url=item.get("absolute_url") or "",
                 posted_at=parse_posted_at(item.get("first_published")),

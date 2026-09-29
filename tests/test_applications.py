@@ -265,6 +265,12 @@ class PortalTests(unittest.TestCase):
             board,
         )
         self.assertEqual(jobs[0].external_job_id, "9")
+        html_job = parse_greenhouse_jobs(
+            {"jobs": [{"id": 10, "title": "Software Engineer", "content": '<div class="content-intro"><h2><strong>Who We Are</strong></h2><p>Build software.</p><ul><li>Python</li></ul><script>bad()</script></div>'}]},
+            board,
+        )
+        self.assertEqual(html_job[0].description_text, "Who We Are\nBuild software.\n\n- Python")
+        self.assertNotIn("<", html_job[0].description_text)
         self.assertEqual(jobs[0].posted_at, datetime(2026, 9, 26, 15, 0, tzinfo=timezone.utc))
         questions = parse_greenhouse_questions(
             {"questions": [{"label": "First Name", "required": True, "fields": [{"name": "first_name", "type": "input"}]}]}
