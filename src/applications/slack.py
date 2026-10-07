@@ -5,7 +5,9 @@ import re
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from applications.http import NetworkError, ssl_context
 from applications.listings import fit_score, load_listings, recent_posting
@@ -47,12 +49,23 @@ def send_webhook(url, payload):
         raise NetworkError('Slack notification request failed') from None
 
 
+def formatted_posted_at(value):
+    try:
+        posted = datetime.fromisoformat((value or '').replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        return 'Unknown'
+    if posted.tzinfo is None:
+        posted = posted.replace(tzinfo=timezone.utc)
+    local = posted.astimezone(ZoneInfo('America/Los_Angeles'))
+    return f"{local:%b} {local.day}, {local.year} at {local.hour % 12 or 12}:{local:%M %p %Z}"
+
+
 def message(job):
     score = fit_score(job.get('assessment', ''))
     text = (f"Strong JEV match: {job.get('title', '')} at {job.get('company', '')}\n"
             f"Location: {job.get('location') or 'Not specified'}\n"
             f"JEV fit score: {score:.0%}\n"
-            f"Posted: {job.get('posted_at', '')}\n{job.get('link', '')}")[:3000]
+            f"Posted: {formatted_posted_at(job.get('posted_at'))}\n{job.get('link', '')}")[:3000]
     return {'text': text, 'blocks': [
         {'type': 'section', 'text': {'type': 'plain_text', 'text': text}},
     ], 'unfurl_links': False, 'unfurl_media': False}

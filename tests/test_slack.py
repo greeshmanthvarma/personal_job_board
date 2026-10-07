@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applications.http import NetworkError
-from applications.slack import notify_matches, validate_webhook
+from applications.slack import formatted_posted_at, notify_matches, validate_webhook
 
 URL = 'https://hooks.slack.com/services/Ttest/Btest/secret'
 NOW = datetime(2026, 10, 6, tzinfo=timezone.utc)
@@ -13,6 +13,12 @@ REASON = 'yes: role_family yes (0.90); level yes (0.90); responsibilities yes (0
 
 
 class SlackTests(unittest.TestCase):
+    def test_posted_time_uses_pacific_timezone_and_daylight_saving(self):
+        self.assertEqual(formatted_posted_at('2026-10-06T21:30:00Z'), 'Oct 6, 2026 at 2:30 PM PDT')
+        self.assertEqual(formatted_posted_at('2026-01-06T21:30:00+00:00'), 'Jan 6, 2026 at 1:30 PM PST')
+        self.assertEqual(formatted_posted_at('2026-10-06T01:30:00'), 'Oct 5, 2026 at 6:30 PM PDT')
+        self.assertEqual(formatted_posted_at('invalid'), 'Unknown')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
