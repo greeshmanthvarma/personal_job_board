@@ -17,6 +17,15 @@ Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`. Startup rejects missing
 
 Optional variables: `POLL_BOARD_LIMIT=50`, `POLL_ASSESSMENT_LIMIT=50`. These are bounded scheduling budgets. Limits do not promise that all directory boards refresh every six hours. No OpenAI key is needed in Railway.
 
+For Telegram alerts, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as private Railway
+service variables using the same values as your local `.env`. Deploy the version containing
+`applications.telegram`; variables alone cannot enable notifications on an older build.
+The polling subprocess inherits these variables and sends up to 20 recent strong JEV
+matches per scan (each of the four checks must score at least 70%), with at least 1.1 seconds between messages. Delivery history lives on
+the volume in `telegram-notifications.json` and is included in daily snapshots.
+Leave `SLACK_WEBHOOK_URL` empty when using only Telegram. Do not use `VITE_*` variables
+for either notification credential. The first scan may notify existing recent matches.
+
 The worker wakes every five seconds for heartbeat/supervision and starts the next polling subprocess as soon as the previous one has exited. Broad discovery and boards currently hiring engineers share the batch budget. HTTP stays available during scanning. Requests/assessments/boards have deadlines, and batches have a twenty-minute deadline. Graceful interruption is attempted first; a stuck process is terminated after 45 seconds and killed only if it still fails to exit. Atomic persistence protects against partial JSON; interrupted work remains due. A deployment restart marks old running scan status interrupted.
 
 ## Local frontend connection

@@ -38,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument('--data-dir', type=Path)
     serve.add_argument('--remote', action='store_true', help='Use authenticated Railway storage; never fall back to local data')
     sub.add_parser('host', help='Authenticated Railway backend with supervised scheduled discovery')
+    sub.add_parser('telegram-chat-id', help='Show private Telegram chat IDs after you start your bot')
     snapshot = sub.add_parser('snapshot', help='Create a private validated snapshot; never includes secrets/profile')
     snapshot.add_argument('--data-dir', type=Path)
     snapshot.add_argument('--output',type=Path,required=True)
@@ -52,6 +53,19 @@ def main(argv: list[str] | None = None) -> int:
     root = repo_root()
     load_env(root / ".env")
     data = getattr(args, 'data_dir', None) or (root / "data")
+    if args.command == 'telegram-chat-id':
+        from applications.telegram import private_chat_ids
+        try:
+            ids = private_chat_ids(os.environ.get('TELEGRAM_BOT_TOKEN', '').strip())
+        except (NetworkError, ValueError) as err:
+            print(str(err))
+            return 2
+        if not ids:
+            print('Open your bot in Telegram, tap Start, then run this command again.')
+            return 2
+        print('Private chat IDs: ' + ', '.join(ids))
+        print('Set TELEGRAM_CHAT_ID to your own chat ID in .env or Railway variables.')
+        return 0
     if args.command in {'snapshot','restore'}:
         from applications.snapshots import create_snapshot,restore_snapshot
         try:
@@ -104,6 +118,23 @@ def _tracked_poll_boards(root: Path, data: Path, limit: int | None, vendor: str 
     save_run(data / 'scan-state.json', run)
     try:
         result = _poll_boards(root, data, limit, vendor, recheck_location, run, backlog, board_slug, job_id, assessment_limit)
+        from applications.slack import notify_matches
+        try:
+            sent = notify_matches(data, os.environ.get('SLACK_WEBHOOK_URL', '').strip())
+            if sent:
+                print(f'Slack: sent {sent} job notifications')
+        except (NetworkError, ValueError, OSError):
+            run['message'] = 'Slack notifications unavailable; discovery is saved. Check webhook configuration; unsent matches retry next scan.'
+            print(run['message'])
+        from applications.telegram import notify_telegram
+        try:
+            sent = notify_telegram(data, os.environ.get('TELEGRAM_BOT_TOKEN', '').strip(),
+                                   os.environ.get('TELEGRAM_CHAT_ID', '').strip())
+            if sent:
+                print(f'Telegram: sent {sent} job notifications')
+        except (NetworkError, ValueError, OSError):
+            run['message'] = 'Telegram notifications unavailable; discovery is saved. Check bot configuration; unsent matches retry next scan.'
+            print(run['message'])
         run['status'] = 'completed' if result == 0 else 'stopped'
         return result
     except KeyboardInterrupt:

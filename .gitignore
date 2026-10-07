@@ -28,5 +28,7 @@ data/tracking.lock
 data/snapshot.lock
 data/scheduler-state.json
 data/storage-version.json
+data/slack-notifications.json
+data/telegram-notifications.json
 data/backups/
 *.tar.gz

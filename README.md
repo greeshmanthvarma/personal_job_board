@@ -82,6 +82,46 @@ With `TYPESAFE_API_KEY` in `.env` and `profile.md` present, Jev assesses matchin
 
 Relevance is the mean of Jev's four scores: role family, level, responsibilities, and qualifications. It is an assessment signal, not a hiring prediction. The default ranking is `0.70 * relevance + 0.30 * exp(-age_days / 7)`. Future timestamps clamp to age zero. Unknown dates contribute no recency component. Unassessed jobs use the weighted recency component only and are explicitly labeled Not assessed, not given a fictitious fit score. Separate Newest first and Best fit sorts are available.
 
+## Telegram notifications (recommended for personal alerts)
+
+In Telegram, open [BotFather](https://t.me/BotFather), send `/newbot`, and follow its prompts.
+Open your new bot and tap **Start**. Put its token in your private `.env` as
+`TELEGRAM_BOT_TOKEN=...`, then run:
+
+```bash
+python -m applications telegram-chat-id
+```
+
+Set `TELEGRAM_CHAT_ID` to your private chat ID from the command output.
+For Railway polling, set both variables in Railway as well. Leave `SLACK_WEBHOOK_URL`
+empty if you want only Telegram alerts. No webhook server is required for notifications.
+If no chat ID appears, send your bot a new message and rerun the command.
+
+After each scan, up to 20 recent, open strong JEV matches with status New are sent,
+newest first, spaced at least 1.1 seconds apart. Each of the four checks must score at least 70%;
+hard eligibility failures and uncertain locations are excluded. Existing matches
+from the past seven days can be sent on the first enabled scan. Successful sends
+are recorded in `data/telegram-notifications.json` and included in snapshots.
+Failed sends retry on later scans while still eligible; a crash between delivery
+and recording can cause a duplicate. Messages contain job details and a link;
+apply/deny actions remain future work. No messages are sent without configuration.
+
+## Slack notifications (optional)
+
+Create a Slack app, enable Incoming Webhooks, and add a webhook for your chosen channel:
+[Slack setup instructions](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/).
+Set `SLACK_WEBHOOK_URL` in your private `.env` for local polling, or in Railway variables for hosted polling.
+Do not put the webhook in frontend variables or Git.
+
+After each scan, up to 20 recent, open, untracked strong JEV matches are sent, newest first.
+Each of the four JEV checks must score at least 70%; hard eligibility failures and uncertain locations are excluded.
+Messages include role, company, location, fit score, posting date, and job link.
+The first enabled scan can notify about existing matches from the past seven days.
+Successful sends are recorded in `data/slack-notifications.json`, including in snapshots;
+unsent matches retry on later scans while still eligible. A crash after Slack accepts a message
+but before the record is saved can cause a duplicate. Notification failures do not discard discoveries.
+Apply/deny actions are not included. Without a webhook, notifications are disabled.
+
 ## Tracking
 
 Each job card has a direct application link and a status dropdown that saves immediately. The detail view also provides the application link, status dropdown, notes box, and **Save tracking** button. States: New, Saved, Applied, Interviewing, Offer, Rejected, Skipped, and Needs verification. Applied means you manually report applying; it does not claim employer receipt. Opening an application link never changes status. The first Applied action records the date; later status changes preserve it. Notes and statuses survive refreshes, restarts, and discovery scans. Status membership changes only after a confirmed save, and failed writes retain detail edits.
