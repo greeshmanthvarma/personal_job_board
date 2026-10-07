@@ -99,7 +99,7 @@ If no chat ID appears, send your bot a new message and rerun the command.
 
 After each scan, up to 20 recent, open strong JEV matches with status New are sent,
 newest first, spaced at least 1.1 seconds apart. Each of the four checks must score at least 70%;
-hard eligibility failures and uncertain locations are excluded. Existing matches
+hard eligibility failures are excluded. Unknown locations remain eligible when the fit scores pass. Existing matches
 from the past seven days can be sent on the first enabled scan. Successful sends
 are recorded in `data/telegram-notifications.json` and included in snapshots.
 Failed sends retry on later scans while still eligible; a crash between delivery
@@ -114,7 +114,7 @@ Set `SLACK_WEBHOOK_URL` in your private `.env` for local polling, or in Railway 
 Do not put the webhook in frontend variables or Git.
 
 After each scan, up to 20 recent, open, untracked strong JEV matches are sent, newest first.
-Each of the four JEV checks must score at least 70%; hard eligibility failures and uncertain locations are excluded.
+Each of the four JEV checks must score at least 70%; hard eligibility failures are excluded. Unknown locations remain eligible when the fit scores pass.
 Messages include role, company, location, fit score, posting date, and job link.
 The first enabled scan can notify about existing matches from the past seven days.
 Successful sends are recorded in `data/slack-notifications.json`, including in snapshots;

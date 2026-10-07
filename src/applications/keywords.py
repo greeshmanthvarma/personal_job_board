@@ -106,20 +106,48 @@ _STATE_NAMES = (
     "wisconsin", "wyoming", "district of columbia",
 )
 
+_US_CITIES = (
+    "san francisco bay area", "sf bay area", "san francisco", "bay area", "new york city",
+    "los angeles", "san diego", "san jose", "palo alto", "mountain view", "menlo park",
+    "redwood city", "santa clara", "sunnyvale", "salt lake city", "kansas city",
+    "st louis", "saint louis", "jersey city", "el segundo", "ann arbor", "fort worth",
+    "las vegas", "oklahoma city", "virginia beach", "colorado springs", "new orleans",
+    "baton rouge", "des moines", "little rock", "sioux falls", "green bay",
+    "san antonio", "el paso", "corpus christi", "college station", "chapel hill",
+    "chattanooga", "huntsville", "montgomery", "tallahassee",
+    "jacksonville", "fort lauderdale",
+    "west palm beach", "miami", "tampa", "orlando", "atlanta", "savannah", "charlotte",
+    "raleigh", "durham", "greensboro", "charleston", "richmond", "norfolk",
+    "arlington", "alexandria", "bethesda", "tysons", "reston", "mclean", "ashburn",
+    "baltimore", "philadelphia", "pittsburgh", "cleveland", "columbus", "cincinnati",
+    "dayton", "toledo", "detroit", "grand rapids", "milwaukee", "madison",
+    "minneapolis", "st paul", "saint paul", "chicago", "indianapolis", "nashville",
+    "memphis", "knoxville", "louisville", "lexington", "houston", "dallas", "austin",
+    "denver", "boulder", "phoenix", "tucson", "albuquerque", "boise", "seattle",
+    "bellevue", "redmond", "kirkland", "tacoma", "spokane", "portland", "eugene",
+    "sacramento", "oakland", "berkeley", "fremont", "irvine", "pasadena", "burbank",
+    "glendale", "long beach", "santa monica", "culver city", "riverside", "boston",
+    "somerville", "brooklyn", "manhattan", "queens", "bronx", "hoboken",
+    "stamford", "providence", "hartford", "new haven", "buffalo", "rochester",
+    "syracuse", "albany", "nyc", "sf",
+)
+
+
 _NON_US = (
     "indonesia", "thailand", "vietnam", "philippines", "hong kong", "austria",
-    "malaysia", "taiwan", "shenzhen", "lausanne", "aus", "new zealand",
-    "united kingdom", "great britain", "england", "scotland", "wales", "london",
-    "ireland", "dublin", "uk", "europe", "emea", "germany", "berlin", "munich", "france",
-    "paris", "netherlands", "amsterdam", "spain", "madrid", "sweden", "stockholm",
+    "malaysia", "taiwan", "shenzhen", "lausanne", "new zealand",
+    "united kingdom", "great britain", "england", "scotland", "wales",
+    "ireland", "uk", "europe", "emea", "germany", "berlin", "munich", "france",
+    "netherlands", "amsterdam", "spain", "madrid", "sweden", "stockholm",
     "norway", "denmark", "finland", "switzerland", "zurich", "poland", "portugal",
     "italy", "india", "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", "delhi",
-    "canada", "toronto", "vancouver", "montreal", "australia", "sydney", "melbourne",
+    "canada", "toronto", "montreal", "australia", "sydney", "melbourne",
     "singapore", "japan", "tokyo", "china", "beijing", "shanghai", "korea", "seoul",
     "israel", "tel aviv", "brazil", "mexico", "latam", "latin america", "africa",
     "nigeria", "kenya", "south africa", "uae", "dubai", "remote uk", "remote emea",
+    "remote aus", "estonia", "romania", "belgium", "hungary", "czechia", "czech republic",
+    "warsaw", "lisbon", "leuven", "budapest", "malmo", "bucharest", "gurugram",
 )
-
 
 @dataclass(frozen=True)
 class TitleDecision:
@@ -179,27 +207,31 @@ def location_decision(location: str) -> LocationDecision:
         if code in {"us", "usa", "u s", "united states", "united states of america"}:
             return LocationDecision("pass", "location include: structured US address")
         return LocationDecision("reject", f"location exclude: structured country {country.group(1)!r}")
-    if _strong_us(raw):
+    if _strong_us(raw) or _state_signal(raw, normalize(raw)):
         return LocationDecision("pass", "location include: United States")
     text = normalize(raw)
     for phrase in _NON_US:
         if has_phrase(text, phrase):
             return LocationDecision("reject", f"location exclude: {phrase} ({raw!r})")
-    if _state_signal(raw, text):
-        return LocationDecision("pass", "location include: United States")
-    city = re.sub(r"\b(?:office|headquarters|hq|hybrid|onsite|on site|remote)\b", "", text)
-    city = re.sub(r"\s+", " ", city).strip()
-    if city in {"san francisco", "san francisco bay area", "sf", "sf bay area", "bay area", "sunnyvale", "palo alto", "mountain view", "menlo park", "san jose", "redwood city", "santa clara", "los angeles", "seattle", "boston", "austin", "chicago", "riverside", "new york city", "nyc"}:
+    if _allowed_us(raw):
         return LocationDecision("pass", "location include: known US city")
-    if re.search(r"\b(remote|worldwide|global|anywhere)\b", text) and not re.search(r"\b(hybrid|onsite|on site)\b", text):
+    leftover = re.sub(r"\b(?:office|headquarters|hq|hybrid|onsite|on site|remote|worldwide|global|anywhere)\b", " ", text)
+    leftover = re.sub(r"\s+", " ", leftover).strip()
+    if not leftover and re.search(r"\b(?:remote|worldwide|global|anywhere)\b", text):
         return LocationDecision(
             "uncertain",
             f"remote posting does not state that United States residents can work ({raw!r})",
         )
-    return LocationDecision(
-        "uncertain",
-        f"location does not state United States eligibility ({raw!r})",
-    )
+    return LocationDecision("uncertain", f"location does not state United States eligibility ({raw!r})")
+
+
+def _allowed_us(raw: str) -> bool:
+    if _strong_us(raw):
+        return True
+    text = normalize(raw)
+    if _state_signal(raw, text):
+        return True
+    return any(has_phrase(text, city) for city in _US_CITIES)
 
 
 def _strong_us(raw: str) -> bool:

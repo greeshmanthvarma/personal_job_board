@@ -50,8 +50,8 @@ class SlackTests(unittest.TestCase):
 
     def test_filters(self):
         for changes in ({'assessment': ''}, {'assessment': REASON.replace('level yes (0.90)', 'level uncertain (0.69)')},
-                        {'is_listed': False}, {'eligibility_reason': 'No'},
-                        {'location_uncertain': True}, {'posted_at': '2026-09-01'},
+                        {'is_listed': False}, {'eligibility_reason': 'No'}, {'location': 'Berlin, Germany'},
+                        {'posted_at': '2026-09-01'},
                         {'posted_at': '2026-10-07'}, {'posted_at': ''}):
             with self.subTest(changes=changes):
                 self.save([dict(self.job, **changes)])
@@ -68,6 +68,10 @@ class SlackTests(unittest.TestCase):
     def test_seventy_percent_includes_cached_uncertain_assessments(self):
         reason = REASON.replace('yes:', 'uncertain:').replace('yes (0.90)', 'uncertain (0.70)')
         self.save([dict(self.job, assessment=reason)])
+        self.assertEqual(notify_matches(self.data, URL, send=lambda *args: None, now=NOW), 1)
+
+    def test_uncertain_location_can_notify_when_fit_passes(self):
+        self.save([dict(self.job, location='Cupertino', location_uncertain=True)])
         self.assertEqual(notify_matches(self.data, URL, send=lambda *args: None, now=NOW), 1)
 
     def test_high_average_does_not_override_low_check(self):

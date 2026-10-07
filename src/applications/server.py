@@ -4,6 +4,7 @@ import mimetypes
 from urllib.parse import unquote, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from applications.keywords import location_decision
 from applications.listings import board_job_detail, board_page, list_board_jobs
 from applications.textutil import html_to_text
 from applications.tracking import update_tracking, export_tracking
@@ -22,6 +23,31 @@ def static_asset(root: Path, request_path: str):
     if not resolved.is_relative_to(root.resolve()) or not resolved.is_file():
         return None
     return resolved.read_bytes(), mimetypes.guess_type(str(resolved))[0] or 'application/octet-stream'
+
+def _without_rejected_locations(body: bytes) -> bytes:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return body
+    jobs = payload.get('jobs') if isinstance(payload, dict) else None
+    if not isinstance(jobs, list):
+        return body
+    kept = []
+    removed = 0
+    for job in jobs:
+        if isinstance(job, dict) and job.get('status', 'new') == 'new' and location_decision(str(job.get('location') or '')).action == 'reject':
+            removed += 1
+            continue
+        kept.append(job)
+    if not removed:
+        return body
+    payload['jobs'] = kept
+    if isinstance(payload.get('total'), int):
+        payload['total'] = max(0, payload['total'] - removed)
+    counts = payload.get('counts')
+    if isinstance(counts, dict) and isinstance(counts.get('new'), int):
+        counts['new'] = max(0, counts['new'] - removed)
+    return json.dumps(payload).encode()
 
 def _plain_detail(body: bytes) -> bytes:
     try:
@@ -55,8 +81,11 @@ def make_server(data: Path, port=8765, frontend_root: Path | None = None, remote
             from applications.proxy import ProxyError
             try:
                 status, body, content_type = remote_client.request(path, payload)
-                if urlsplit(path).path == '/api/jobs/detail' and content_type.startswith('application/json'):
+                route = urlsplit(path).path
+                if content_type.startswith('application/json') and route == '/api/jobs/detail':
                     body = _plain_detail(body)
+                elif content_type.startswith('application/json') and route == '/api/jobs':
+                    body = _without_rejected_locations(body)
                 return self.respond(status, body, content_type, 'job-tracking.csv' if path == '/api/export' else None)
             except ProxyError as err:
                 return self.respond(err.status, {'error': {'code':'remote_unavailable','message':str(err)}})

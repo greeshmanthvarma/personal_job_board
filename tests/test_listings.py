@@ -42,7 +42,7 @@ class ListingTests(unittest.TestCase):
         board = Board('ashby', 'Example', 'example')
         engineer = JobPosting('ashby', '1', 'Software Engineer', 'Example', 'United States', 'https://jobs.ashbyhq.com/example/1', 'Build software', posted_at=now)
         sales = JobPosting('ashby', '2', 'Account Executive', 'Example', 'United States', 'https://jobs.ashbyhq.com/example/2', 'Sell software', posted_at=now)
-        abroad = JobPosting('ashby', '3', 'Software Engineer', 'Example', 'London', 'https://jobs.ashbyhq.com/example/3', 'Build software', posted_at=now)
+        abroad = JobPosting('ashby', '3', 'Software Engineer', 'Example', 'London, United Kingdom', 'https://jobs.ashbyhq.com/example/3', 'Build software', posted_at=now)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             data = root / 'data'
@@ -85,6 +85,23 @@ class ListingTests(unittest.TestCase):
             data = Path(folder)
             ApplicationLog(data/'applications.csv').append(Record('now','ashby','123','Engineer','Ambral','https://jobs.ashbyhq.com/Ambral/123','blocked','No explicit employer confirmation; manual review required'))
             self.assertEqual(list_board_jobs(data)[0]['status'],'needs_verification')
+
+    def test_european_locations_stay_off_the_board(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            (data/'jobs.json').write_text(json.dumps({
+                'ashby\t1': {'identity':'ashby\t1','portal':'ashby','job_id':'1','company':'Flix','title':'Software Engineer','location':'Warsaw','link':'https://example.com','is_listed':True,'posted_at':'2026-09-28T06:00:00+00:00'},
+                'ashby\t2': {'identity':'ashby\t2','portal':'ashby','job_id':'2','company':'Example','title':'Software Engineer','location':'Remote','link':'https://example.com','is_listed':True,'posted_at':'2026-09-28T06:00:00+00:00'},
+            }))
+            self.assertEqual([job['job_id'] for job in list_board_jobs(data)], ['2'])
+
+    def test_unknown_us_city_stays_on_board(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            job = {'identity': 'ashby\t1', 'portal': 'ashby', 'job_id': '1',
+                   'title': 'Software Engineer', 'location': 'Cupertino', 'is_listed': True}
+            (data/'jobs.json').write_text(json.dumps({job['identity']: job}))
+            self.assertEqual([row['job_id'] for row in list_board_jobs(data)], ['1'])
 
     def test_page_keeps_descriptions_off_the_list(self):
         now = datetime(2026, 9, 28, 12, tzinfo=timezone.utc)

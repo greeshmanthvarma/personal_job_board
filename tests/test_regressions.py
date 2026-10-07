@@ -132,7 +132,8 @@ class RegressionTests(unittest.TestCase):
         for city in ('San Francisco', 'New York, NY', 'Austin, TX'):
             self.assertEqual(location_decision(city).action, 'pass')
             self.assertIsNone(eligibility_reason(f'Candidates must be based in {city}.'))
-        self.assertIsNotNone(eligibility_reason('Candidates must be based in London.'))
+        self.assertIsNone(eligibility_reason('Candidates must be based in London.'))
+        self.assertIsNotNone(eligibility_reason('Candidates must be based in London, United Kingdom.'))
 
     def test_uploads_are_distinct(self):
         self.assertEqual(plan_answer(Question('Resume', True, kind='file')).answer, 'resume.pdf')

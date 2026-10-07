@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from applications.http import NetworkError, ssl_context
+from applications.keywords import location_decision
 from applications.listings import fit_score, load_listings, recent_posting
 from applications.proxy import NoRedirect
 from applications.schedule import stamp, utc_now
@@ -89,7 +90,8 @@ def notify_matches(data, webhook, *, send=None, limit=20, now=None,
         identity = job['identity']
         if (identity in delivered or tracking.get(identity, {}).get('status', 'new') != 'new'
                 or job.get('is_listed') is not True or job.get('eligibility_reason')
-                or job.get('location_uncertain') or not recent_posting(job, now)
+                or location_decision(job.get('location') or '').action == 'reject'
+                or not recent_posting(job, now)
                 or not notification_match(job.get('assessment', ''))):
             continue
         if sent >= limit:

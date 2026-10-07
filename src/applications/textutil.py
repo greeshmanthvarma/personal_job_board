@@ -2,6 +2,7 @@
 
 import html
 import re
+import unicodedata
 
 _TAG = re.compile(r"(?is)<(script|style)\b.*?>.*?</\1>")
 _MARKUP = re.compile(r"(?s)<[^>]+>")
@@ -9,7 +10,9 @@ _SPACE = re.compile(r"\s+")
 
 
 def normalize(value: str) -> str:
-    text = html.unescape(value or "").lower().replace("&", " and ")
+    text = unicodedata.normalize("NFKD", html.unescape(value or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.lower().replace("&", " and ")
     text = re.sub(r"[^a-z0-9+]+", " ", text)
     text = _SPACE.sub(" ", text).strip()
     for source, dest in (

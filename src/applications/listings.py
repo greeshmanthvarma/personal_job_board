@@ -97,6 +97,8 @@ def list_board_jobs(data: Path) -> list[dict]:
     for key, value in values.items():
         if value.get('eligibility_reason') and key not in tracking:
             continue
+        if key not in tracking and location_decision(value.get('location') or '').action == 'reject':
+            continue
         value = dict(value)
         unknown = value.get('history_stage') == 'blocked' and ('No explicit employer confirmation' in value.get('history_reason','') or 'unknown' in value.get('history_reason','').lower())
         default = 'needs_verification' if unknown else ('applied' if value.get('history_stage') == 'submitted' else 'new')

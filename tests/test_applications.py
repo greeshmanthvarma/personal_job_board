@@ -58,10 +58,25 @@ class LocationTests(unittest.TestCase):
         self.assertEqual(location_decision("Remote, United States").action, "pass")
         self.assertEqual(location_decision("London, United Kingdom").action, "reject")
         self.assertEqual(location_decision("Toronto, Canada").action, "reject")
+        for location in ("Estonia remote", "Warsaw", "Lisbon", "Leuven (BE)", "Budapest hybrid", "Malmö", "Bucharest, Romania"):
+            self.assertEqual(location_decision(location).action, "reject", location)
+        self.assertEqual(location_decision("Vienna, VA, USA").action, "pass")
+        self.assertEqual(location_decision("Athens, GA").action, "pass")
+        self.assertEqual(location_decision("Remote").action, "uncertain")
+        self.assertEqual(location_decision("Miami").action, "pass")
+        self.assertEqual(location_decision("Gurugram").action, "reject")
         self.assertEqual(location_decision("").action, "pass")
 
     def test_unspecified_remote_is_uncertain(self):
         self.assertEqual(location_decision("Remote").action, "uncertain")
+
+    def test_unknown_and_ambiguous_cities_are_not_rejected(self):
+        for city in ('Cupertino', 'Plano', 'Bentonville', 'Cambridge', 'London', 'Paris', 'Dublin', 'Vancouver'):
+            self.assertEqual(location_decision(city).action, 'uncertain', city)
+        for place in ('Paris, TX', 'London, OH', 'Dublin, CA', 'Warsaw, IN', 'Cambridge, MA'):
+            self.assertEqual(location_decision(place).action, 'pass', place)
+        for place in ('Paris, France', 'London, UK', 'Dublin, Ireland', 'Austin, Germany', 'Remote EMEA'):
+            self.assertEqual(location_decision(place).action, 'reject', place)
 
 
 class EligibilityTests(unittest.TestCase):
@@ -78,7 +93,8 @@ class EligibilityTests(unittest.TestCase):
         self.assertIn("citizenship", eligibility_reason("You must be a U.S. citizen."))
         self.assertIn("no sponsorship", eligibility_reason("We do not sponsor employment visas."))
         self.assertIsNone(eligibility_reason("We are unable to sponsor at this time."))
-        self.assertIn("outside the United States", eligibility_reason("Candidates must be based in London."))
+        self.assertIsNone(eligibility_reason("Candidates must be based in London."))
+        self.assertIn("outside the United States", eligibility_reason("Candidates must be based in London, United Kingdom."))
 
 
 class AnswerTests(unittest.TestCase):
