@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from applications.storage import snapshot_lock, atomic_json
 
-FILES=('jobs.json','tracking.json','board-schedule.json','scan-state.json','scheduler-state.json','storage-version.json','applications.csv','drafts.json','ats-board-directory.csv','slack-notifications.json','telegram-notifications.json')
+FILES=('jobs.json','tracking.json','board-schedule.json','scan-state.json','scheduler-state.json','storage-version.json','applications.csv','drafts.json','ats-board-directory.csv','slack-notifications.json','telegram-notifications.json','telegram-updates.json')
 MAX_SIZE=512*1024*1024
 
 def create_snapshot(data: Path, destination: Path):

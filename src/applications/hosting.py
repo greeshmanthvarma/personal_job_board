@@ -114,16 +114,34 @@ def host_board(root):
     def request_stop(*_):stop.set()
     previous={sig:signal.signal(sig,request_stop) for sig in (signal.SIGTERM,signal.SIGINT)}
     worker=PollWorker(root,config)
+    from applications.telegram import TelegramWorker
+    telegram_worker = None
+    telegram_thread = None
+    if os.environ.get('TELEGRAM_BOT_TOKEN') and os.environ.get('TELEGRAM_CHAT_ID'):
+        try:
+            telegram_worker = TelegramWorker(config.data, os.environ['TELEGRAM_BOT_TOKEN'].strip(), os.environ['TELEGRAM_CHAT_ID'].strip())
+            telegram_thread = threading.Thread(target=telegram_worker.run, name='telegram-buttons', daemon=True)
+        except (ValueError, OSError):
+            print('Telegram button listener configuration invalid; private details omitted.')
     scan_thread=threading.Thread(target=worker.run,name='poll-supervisor',daemon=True)
     server_thread=threading.Thread(target=server.serve_forever,daemon=True)
     scan_thread.start();server_thread.start()
+    if telegram_thread:
+        telegram_thread.start()
     try:
         while not stop.wait(1):
             if not scan_thread.is_alive():
                 # Fail loudly so Railway restart policy can recover a dead supervisor.
                 print('Polling supervisor stopped; restarting deployment.',file=sys.stderr)
                 return 1
+            if telegram_thread and not telegram_thread.is_alive():
+                print('Telegram button listener stopped; restarting deployment.', file=sys.stderr)
+                return 1
     finally:
+        if telegram_worker:
+            telegram_worker.stop.set()
         worker.stop.set();server.shutdown();server.server_close();scan_thread.join(timeout=60)
+        if telegram_thread:
+            telegram_thread.join(timeout=15)
         for sig,handler in previous.items():signal.signal(sig,handler)
     return 0

@@ -104,7 +104,11 @@ from the past seven days can be sent on the first enabled scan. Successful sends
 are recorded in `data/telegram-notifications.json` and included in snapshots.
 Failed sends retry on later scans while still eligible; a crash between delivery
 and recording can cause a duplicate. Messages contain job details and a link;
-apply/deny actions remain future work. No messages are sent without configuration.
+new alerts include a **Mark applied** button. Railway listens for clicks in your configured
+private chat and saves Applied with its first application date, preserving notes. Repeat
+clicks do not reset that date or regress later tracking statuses. The button disappears
+after processing. This records your manual application; it does not submit anything.
+Old alerts are not modified. No messages are sent without configuration.
 
 ## Slack notifications (optional)
 

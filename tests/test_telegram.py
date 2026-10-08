@@ -73,3 +73,71 @@ class TelegramTests(unittest.TestCase):
                     request(TOKEN, 'getUpdates', {})
                 self.assertIn(expected, str(caught.exception))
                 self.assertNotIn(TOKEN, str(caught.exception))
+
+
+class TelegramButtonTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.data = Path(self.temp.name)
+        self.identity = 'ashby\t' + 'long-job-id' * 20
+        (self.data/'jobs.json').write_text(json.dumps({self.identity: {'identity': self.identity}}))
+        from applications.telegram import applied_callback
+        self.query = {'id': 'query1', 'from': {'id': 6789},
+                      'message': {'message_id': 42, 'chat': {'id': 6789, 'type': 'private'}},
+                      'data': applied_callback(self.identity)}
+        self.calls = []
+        self.api = lambda *args: self.calls.append(args)
+
+    def test_click_preserves_notes_and_duplicate_preserves_date(self):
+        from applications.telegram import process_callback
+        from applications.tracking import load_tracking
+        (self.data/'tracking.json').write_text(json.dumps({self.identity: {'status': 'saved', 'notes': 'Follow up'}}))
+        process_callback(self.data, TOKEN, '6789', self.query, api=self.api)
+        first = load_tracking(self.data)[self.identity]
+        self.assertEqual(first['status'], 'applied')
+        self.assertEqual(first['notes'], 'Follow up')
+        self.assertTrue(first['applied_at'])
+        process_callback(self.data, TOKEN, '6789', self.query, api=self.api)
+        self.assertEqual(load_tracking(self.data)[self.identity], first)
+        self.assertEqual(self.calls[-1][1], 'editMessageReplyMarkup')
+        self.assertEqual(self.calls[-1][2]['reply_markup']['inline_keyboard'], [])
+        self.assertLessEqual(len(self.query['data'].encode()), 64)
+
+    def test_foreign_user_and_foreign_chat_cannot_write(self):
+        from applications.telegram import process_callback
+        for query in (dict(self.query, **{'from': {'id': 1}}),
+                      dict(self.query, message={'chat': {'id': 1, 'type': 'private'}}),
+                      dict(self.query, data='applied:bad')):
+            process_callback(self.data, TOKEN, '6789', query, api=self.api)
+            self.assertFalse((self.data/'tracking.json').exists())
+
+    def test_later_status_is_not_regressed(self):
+        from applications.telegram import process_callback
+        from applications.tracking import load_tracking
+        previous = {'status': 'interviewing', 'notes': 'Tuesday', 'applied_at': 'original'}
+        (self.data/'tracking.json').write_text(json.dumps({self.identity: previous}))
+        process_callback(self.data, TOKEN, '6789', self.query, api=self.api)
+        self.assertEqual(load_tracking(self.data)[self.identity], previous)
+
+    def test_worker_offset_survives_restart_and_ui_failure(self):
+        from applications.telegram import TelegramWorker
+        from applications.tracking import load_tracking
+        def api(token, method, payload):
+            if method == 'getUpdates':
+                return [{'update_id': 22, 'callback_query': self.query}]
+            raise NetworkError('UI unavailable')
+        worker = TelegramWorker(self.data, TOKEN, '6789', api=api)
+        worker.tick()
+        self.assertEqual(load_tracking(self.data)[self.identity]['status'], 'applied')
+        self.assertEqual(TelegramWorker(self.data, TOKEN, '6789', api=api).offset, 23)
+
+    def test_notifications_have_button(self):
+        from applications.telegram import applied_callback
+        reason = 'yes: role_family yes (0.90); level yes (0.90); responsibilities yes (0.90); qualifications yes (0.90)'
+        job = {'identity': self.identity, 'is_listed': True, 'posted_at': NOW.isoformat(), 'assessment': reason}
+        (self.data/'jobs.json').write_text(json.dumps({self.identity: job}))
+        notify_telegram(self.data, TOKEN, '6789', api=self.api, now=NOW)
+        button = self.calls[0][2]['reply_markup']['inline_keyboard'][0][0]
+        self.assertEqual(button['text'], 'Mark applied')
+        self.assertEqual(button['callback_data'], applied_callback(self.identity))

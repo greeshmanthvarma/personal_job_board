@@ -44,6 +44,7 @@ def validate_webhook(url):
 
 def send_webhook(url, payload):
     validate_webhook(url)
+    payload = {key: value for key, value in payload.items() if key != 'identity'}
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
                                         urllib.request.HTTPSHandler(context=ssl_context()))
     request = urllib.request.Request(url, data=json.dumps(payload).encode(),
@@ -113,7 +114,9 @@ def notify_matches(data, webhook, *, send=None, limit=20, now=None,
             break
         if sent:
             time.sleep(1.1)
-        send(webhook, message(job))
+        payload = message(job)
+        payload['identity'] = identity
+        send(webhook, payload)
         delivered[identity] = stamp(now)
         with snapshot_lock(data):
             atomic_json(path, delivered)

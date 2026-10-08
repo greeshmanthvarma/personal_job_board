@@ -35,6 +35,26 @@ def update_tracking(data: Path, identity: str, status: str, notes: str) -> dict:
         atomic_json(data/'tracking.json', values)
         return entry
 
+@locked_data
+def mark_applied(data: Path, identity: str) -> dict:
+    """Mark from Telegram without erasing notes or regressing later statuses."""
+    from applications.listings import load_listings
+    if identity not in load_listings(data):
+        raise ValueError('Unknown job')
+    with (data/'tracking.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        values = load_tracking(data)
+        previous = values.get(identity, {})
+        if previous.get('status') not in {None, 'new', 'saved', 'needs_verification'}:
+            return previous
+        now = stamp(utc_now())
+        entry = dict(previous, status='applied', notes=previous.get('notes', ''),
+                     applied_at=previous.get('applied_at') or now, updated_at=now)
+        values[identity] = entry
+        atomic_json(data/'tracking.json', values)
+        return entry
+
+
 def export_tracking(data: Path) -> bytes:
     from applications.listings import list_board_jobs
     output = io.StringIO()

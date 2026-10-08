@@ -26,6 +26,13 @@ the volume in `telegram-notifications.json` and is included in daily snapshots.
 Leave `SLACK_WEBHOOK_URL` empty when using only Telegram. Do not use `VITE_*` variables
 for either notification credential. The first scan may notify existing recent matches.
 
+The same Telegram variables enable a separate button listener in the hosted process.
+It polls Telegram updates every three seconds, accepts **Mark applied** clicks only from
+the configured private-chat owner, and persists tracking with existing locks and atomic writes.
+Its update offset is stored in `telegram-updates.json` on the volume and included in snapshots.
+Use one replica and do not run another update consumer or Telegram webhook for the same bot.
+Existing alerts have no button; new alerts include it. Local `serve` does not run this listener.
+
 The worker wakes every five seconds for heartbeat/supervision and starts the next polling subprocess as soon as the previous one has exited. Broad discovery and boards currently hiring engineers share the batch budget. HTTP stays available during scanning. Requests/assessments/boards have deadlines, and batches have a twenty-minute deadline. Graceful interruption is attempted first; a stuck process is terminated after 45 seconds and killed only if it still fails to exit. Atomic persistence protects against partial JSON; interrupted work remains due. A deployment restart marks old running scan status interrupted.
 
 ## Local frontend connection
