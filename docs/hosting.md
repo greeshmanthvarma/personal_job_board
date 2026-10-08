@@ -20,8 +20,8 @@ Optional variables: `POLL_BOARD_LIMIT=50`, `POLL_ASSESSMENT_LIMIT=50`. These are
 For Telegram alerts, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as private Railway
 service variables using the same values as your local `.env`. Deploy the version containing
 `applications.telegram`; variables alone cannot enable notifications on an older build.
-The polling subprocess inherits these variables and sends up to 20 recent strong JEV
-matches per scan (each of the four checks must score at least 70%), with at least 1.1 seconds between messages. Delivery history lives on
+The polling subprocess inherits these variables and sends up to 20 recent qualifying jobs
+per scan (the average of the four checks must score at least 70%), with at least 1.1 seconds between messages. Delivery history lives on
 the volume in `telegram-notifications.json` and is included in daily snapshots.
 Leave `SLACK_WEBHOOK_URL` empty when using only Telegram. Do not use `VITE_*` variables
 for either notification credential. The first scan may notify existing recent matches.

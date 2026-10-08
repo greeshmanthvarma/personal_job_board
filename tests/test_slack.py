@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from applications.http import NetworkError
-from applications.slack import formatted_posted_at, notify_matches, validate_webhook
+from applications.slack import formatted_posted_at, notification_match, notify_matches, validate_webhook
 
 URL = 'https://hooks.slack.com/services/Ttest/Btest/secret'
 NOW = datetime(2026, 10, 6, tzinfo=timezone.utc)
@@ -49,7 +49,7 @@ class SlackTests(unittest.TestCase):
         self.assertEqual(notify_matches(self.data, URL, send=lambda *args: None, now=NOW), 1)
 
     def test_filters(self):
-        for changes in ({'assessment': ''}, {'assessment': REASON.replace('level yes (0.90)', 'level uncertain (0.69)')},
+        for changes in ({'assessment': ''}, {'assessment': REASON.replace('0.90', '0.69')},
                         {'is_listed': False}, {'eligibility_reason': 'No'}, {'location': 'Berlin, Germany'},
                         {'posted_at': '2026-09-01'},
                         {'posted_at': '2026-10-07'}, {'posted_at': ''}):
@@ -74,10 +74,31 @@ class SlackTests(unittest.TestCase):
         self.save([dict(self.job, location='Cupertino', location_uncertain=True)])
         self.assertEqual(notify_matches(self.data, URL, send=lambda *args: None, now=NOW), 1)
 
-    def test_high_average_does_not_override_low_check(self):
+    def test_seventy_four_percent_average_with_forty_six_percent_level(self):
+        reason = 'uncertain: role_family yes (0.92); level uncertain (0.46); responsibilities yes (0.88); qualifications uncertain (0.70)'
+        self.save([dict(self.job, assessment=reason)])
+        sends = []
+        self.assertEqual(notify_matches(self.data, URL, send=lambda url, payload: sends.append(payload), now=NOW), 1)
+        text = sends[0]['text']
+        for expected in ('Overall JEV fit: 74%', 'Role: 92%', 'Level: 46%',
+                         'Responsibilities: 88%', 'Qualifications: 70%', 'Below 70%: Level'):
+            self.assertIn(expected, text)
+
+    def test_threshold_and_invalid_scores(self):
+        self.assertTrue(notification_match(REASON.replace('0.90', '0.70')))
+        self.assertFalse(notification_match(REASON.replace('0.90', '0.69')))
+        self.assertFalse(notification_match(REASON.replace('0.90', '1.10')))
+        self.assertFalse(notification_match(REASON.split('; qualifications')[0]))
+        self.assertFalse(notification_match(REASON + '; level yes (0.90)'))
+
+    def test_high_average_includes_low_check_and_displays_scores(self):
         reason = REASON.replace('0.90', '1.00').replace('level yes (1.00)', 'level uncertain (0.69)')
         self.save([dict(self.job, assessment=reason)])
-        self.assertEqual(notify_matches(self.data, URL, send=lambda *args: self.fail('sent'), now=NOW), 0)
+        sends = []
+        self.assertEqual(notify_matches(self.data, URL, send=lambda url, payload: sends.append(payload), now=NOW), 1)
+        self.assertIn('Level: 69%', sends[0]['text'])
+        self.assertIn('Below 70%: Level', sends[0]['text'])
+        self.assertNotIn('Strong JEV match', sends[0]['text'])
 
     def test_rejects_other_destinations(self):
         for url in ('http://hooks.slack.com/services/T/B/S', 'https://example.com/services/T/B/S',

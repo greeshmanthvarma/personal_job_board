@@ -1,4 +1,4 @@
-"""Optional Slack alerts for recent, untracked strong JEV matches."""
+"""Optional Slack alerts for recent, untracked jobs meeting the average JEV threshold."""
 import http.client
 import json
 import re
@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from applications.http import NetworkError, ssl_context
 from applications.keywords import location_decision
-from applications.listings import fit_score, load_listings, recent_posting
+from applications.listings import load_listings, recent_posting
 from applications.proxy import NoRedirect
 from applications.schedule import stamp, utc_now
 from applications.storage import atomic_json, snapshot_lock
@@ -20,11 +20,18 @@ from applications.tracking import load_tracking
 NOTIFICATION_THRESHOLD = 0.70
 
 
-def notification_match(reason):
+def notification_scores(reason):
     checks = re.findall(r'(role_family|level|responsibilities|qualifications)\s+(?:yes|no|uncertain)\s+\((\d+(?:\.\d+)?)\)', reason)
     scores = dict(checks)
-    return len(checks) == len(scores) == 4 and all(
-        NOTIFICATION_THRESHOLD <= float(score) <= 1 for score in scores.values())
+    if len(checks) != 4 or len(scores) != 4:
+        return {}
+    scores = {key: float(score) for key, score in scores.items()}
+    return scores if all(0 <= score <= 1 for score in scores.values()) else {}
+
+
+def notification_match(reason):
+    scores = notification_scores(reason)
+    return bool(scores) and sum(scores.values()) / 4 >= NOTIFICATION_THRESHOLD
 
 
 def validate_webhook(url):
@@ -62,10 +69,18 @@ def formatted_posted_at(value):
 
 
 def message(job):
-    score = fit_score(job.get('assessment', ''))
-    text = (f"Strong JEV match: {job.get('title', '')} at {job.get('company', '')}\n"
+    scores = notification_scores(job.get('assessment', ''))
+    if not scores:
+        raise ValueError('Notification requires all four valid JEV scores')
+    score = sum(scores.values()) / 4
+    labels = {'role_family': 'Role', 'level': 'Level',
+              'responsibilities': 'Responsibilities', 'qualifications': 'Qualifications'}
+    details = '\n'.join(f'{label}: {scores[key]:.0%}' for key, label in labels.items())
+    low = [label for key, label in labels.items() if scores[key] < NOTIFICATION_THRESHOLD]
+    warning = f"\nBelow 70%: {', '.join(low)} — review these requirements." if low else ''
+    text = (f"{job.get('title', '')} at {job.get('company', '')}\n"
             f"Location: {job.get('location') or 'Not specified'}\n"
-            f"JEV fit score: {score:.0%}\n"
+            f"Overall JEV fit: {score:.0%}\n{details}{warning}\n"
             f"Posted: {formatted_posted_at(job.get('posted_at'))}\n{job.get('link', '')}")[:3000]
     return {'text': text, 'blocks': [
         {'type': 'section', 'text': {'type': 'plain_text', 'text': text}},
